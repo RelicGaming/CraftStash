@@ -220,7 +220,8 @@ def admin_signups():
 @app.get("/")
 def home():
     pools = q("""SELECT p.*, a.is_owner, a.can_edit, u.username AS owner,
-                        (SELECT COUNT(*) FROM stock s WHERE s.pool_id=p.id) AS n
+                        (SELECT COUNT(*) FROM stock s WHERE s.pool_id=p.id) AS n,
+                        (SELECT group_concat(DISTINCT s.hex) FROM stock s WHERE s.pool_id=p.id AND s.hex<>'') AS hexes
                  FROM pools p JOIN access a ON a.pool_id=p.id JOIN users u ON u.id=p.user_id
                  WHERE a.user_id=? ORDER BY a.is_owner DESC, p.name""", uid())
     return render_template("home.html", pools=pools)
@@ -258,7 +259,8 @@ def pool(pid):
         groups.append((t, fl, q(sql + " ORDER BY name", *args)))
     shares = q("""SELECT u.id, u.username, s.can_edit FROM pool_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.pool_id=? ORDER BY u.username""", pid) if p["is_owner"] else []
-    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0])
+    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0],
+                           hexes=[r["hex"] for r in q("SELECT DISTINCT hex FROM stock WHERE pool_id=? AND hex<>'' LIMIT 40", pid)])
 
 @app.post("/pools/<int:pid>/share")
 def share_pool(pid):
@@ -383,7 +385,12 @@ def item_del(iid):
 @app.get("/projects")
 def projects():
     me = uid()
-    rows = q("""SELECT p.*, u.username AS owner FROM projects p JOIN users u ON u.id=p.user_id
+    rows = q("""SELECT p.*, u.username AS owner,
+                (SELECT group_concat(DISTINCT s.hex) FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=p.id AND s.hex<>'') AS hexes,
+                (SELECT COUNT(*) FROM assignments WHERE project_id=p.id) AS n_items,
+                (SELECT COUNT(*) FROM steps WHERE project_id=p.id) AS n_steps,
+                (SELECT COUNT(*) FROM files WHERE project_id=p.id) AS n_files
+                FROM projects p JOIN users u ON u.id=p.user_id
                 WHERE p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?)
                 ORDER BY p.user_id<>?, p.status='done', p.name""", me, me, me)
     return render_template("projects.html", rows=rows)
@@ -404,6 +411,7 @@ def project(id):
     shares = q("""SELECT u.id, u.username FROM project_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.project_id=? ORDER BY u.username""", id) if mine else []
     return render_template("project.html", p=pr, mine=mine, assigned=assigned, avail=avail, shares=shares,
+                           hexes=list(dict.fromkeys(a["hex"] for a in assigned if a["hex"])),
                            steps=q("SELECT * FROM steps WHERE project_id=? ORDER BY pos", id),
                            files=q("SELECT * FROM files WHERE project_id=? ORDER BY name", id))
 

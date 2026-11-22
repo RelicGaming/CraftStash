@@ -1,8 +1,11 @@
-{% extends "base.html" %}{% block body %}
-<form class="card" method="post" style="max-width:340px;margin:3rem auto">{{ csrf }}
-<h2>{{ 'Log in' if mode == 'login' else 'Create account' }}</h2>
-<label>Username</label><input name="username" required autofocus autocomplete="username" style="width:100%">
-<label>Password</label><input name="password" type="password" required autocomplete="{{ 'current-password' if mode == 'login' else 'new-password' }}" style="width:100%">
-<p><button>{{ 'Log in' if mode == 'login' else 'Sign up' }}</button></p>
-<p class="mut">{% if mode == 'login' %}{% if can_register %}<a href="{{ url_for('register') }}">Create an account</a>{% endif %}{% else %}<a href="{{ url_for('login') }}">Have an account? Log in</a>{% endif %}</p>
-</form>{% endblock %}
+{% extends "base.html" %}{% block title %}{{ 'Log in' if mode == 'login' else 'Create account' }} - Craft Stash{% endblock %}
+{% block body %}
+<div class="auth"><form class="panel" method="post">{{ csrf }}
+<div class="strip"><i style="--c:#3f46b8"></i><i style="--c:#e0679a"></i><i style="--c:#f2b84b"></i><i style="--c:#4fb286"></i><i style="--c:#5ba7d6"></i><i style="--c:#8a5cc2"></i></div>
+<div class="in"><h1>{{ 'Welcome back' if mode == 'login' else 'Create your account' }}</h1>
+<p class="muted">{{ 'Log in to your stash.' if mode == 'login' else 'Your pools and projects stay private until you share them.' }}</p>
+<div class="form-grid" style="margin:18px 0"><label class="field wide"><span>Username</span><input name="username" required autofocus autocomplete="username"></label>
+<label class="field wide"><span>Password</span><input name="password" type="password" required autocomplete="{{ 'current-password' if mode == 'login' else 'new-password' }}"></label></div>
+<button class="btn block">{{ 'Log in' if mode == 'login' else 'Create account' }}</button>
+<p class="muted small" style="margin-top:14px">{% if mode == 'login' %}{% if can_register %}New here? <a href="{{ url_for('register') }}">Create an account</a>{% endif %}{% else %}Already have an account? <a href="{{ url_for('login') }}">Log in</a>{% endif %}</p></div></form></div>
+{% endblock %}

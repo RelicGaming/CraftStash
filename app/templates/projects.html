@@ -1,7 +1,15 @@
-{% extends "base.html" %}{% block body %}
-<h1>Projects</h1>
-<div class="grid">{% for p in rows %}<a class="card" href="{{ url_for('project', id=p.id) }}"><strong>{{ p.name }}</strong><br><span class="mut">{{ p.status }}{% if p.user_id != g.user.id %} · shared by {{ p.owner }}{% endif %}</span></a>
-{% else %}<p class="mut">No projects yet.</p>{% endfor %}</div>
-<form class="card" method="post" action="{{ url_for('new_project') }}">{{ csrf }}<h3>New project</h3>
-<div class="row"><input name="name" placeholder="Project name" required maxlength="100"><button>Create</button></div></form>
+{% extends "base.html" %}{% block title %}Projects - Craft Stash{% endblock %}
+{% macro card(p) %}<a class="tile" href="{{ url_for('project', id=p.id) }}"><div class="strip">{% for c in (p.hexes or '').split(',')[:24] if c %}<i style="--c:{{ c }}"></i>{% endfor %}</div>
+<div class="tile-body"><h3>{{ p.name }}</h3>
+<div class="tile-meta"><span class="pill {{ {'active':'accent','done':'ok'}.get(p.status,'') }}">{{ p.status|capitalize }}</span>
+{% if p.user_id != g.user.id %}<span class="pill">from {{ p.owner }}</span>{% endif %}</div>
+<span class="muted small" style="margin-top:6px">{{ p.n_items }} {{ 'material' if p.n_items == 1 else 'materials' }}, {{ p.n_steps }} {{ 'step' if p.n_steps == 1 else 'steps' }}{% if p.n_files %}, {{ p.n_files }} {{ 'file' if p.n_files == 1 else 'files' }}{% endif %}</span></div></a>{% endmacro %}
+{% block body %}
+{% set mine = rows|selectattr('user_id', 'equalto', g.user.id)|list %}{% set shared = rows|rejectattr('user_id', 'equalto', g.user.id)|list %}
+<div class="page-head"><h1>Projects</h1></div>
+<div class="tiles">{% for p in mine %}{{ card(p) }}{% endfor %}
+<form class="tile add" method="post" action="{{ url_for('new_project') }}">{{ csrf }}<h3>New project</h3>
+<label class="field"><span>Name</span><input name="name" required maxlength="100" placeholder="Baby blanket"></label>
+<button class="btn"><svg class="i"><use href="#i-plus"/></svg>Create project</button></form></div>
+{% if shared %}<h2 class="section-title">Shared with you</h2><div class="tiles">{% for p in shared %}{{ card(p) }}{% endfor %}</div>{% endif %}
 {% endblock %}
