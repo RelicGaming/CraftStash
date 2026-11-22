@@ -7,7 +7,7 @@
 {% if not mine %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Shared by {{ p.owner }}. You can view and print this project but not change it.</span></div>{% endif %}
 {% if p.notes %}<div class="print-only" style="white-space:pre-wrap;margin-bottom:12px">{{ p.notes }}</div>{% endif %}
 <div class="cols"><div>
-<section class="panel"><div class="panel-head"><h2>Materials needed</h2></div>
+<section class="panel"><div class="panel-head"><h2>Materials needed</h2>{% if mine and cost %}<span class="muted small">About ${{ '%.2f'|format(cost) }} of supplies</span>{% endif %}</div>
 <div class="strip lg">{% for h in hexes %}<i style="--c:{{ h }}"></i>{% endfor %}</div>
 {% for a in assigned %}<div class="list-row"><span class="sw-dot{{ '' if a.hex else ' none' }}" {% if a.hex %}style="--c:{{ a.hex }}"{% endif %}></span>
 <div class="grow"><strong>{{ a.name }}</strong>{% if a.colour %} <span class="muted">{{ a.colour }}</span>{% endif %}<div class="muted small">{{ a.tname }}{% if a.subtype %}, {{ a.subtype }}{% endif %}</div></div>

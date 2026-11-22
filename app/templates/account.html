@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}Account - Craft Stash{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Your account</h1><span class="avatar" style="--h:{{ (g.user.id * 67) % 360 }}">{{ g.user.username[0]|upper }}</span><strong>{{ g.user.username }}</strong></div>
+<form class="panel" style="max-width:480px" method="post">{{ csrf }}<div class="panel-head"><h2>Change password</h2></div>
+<div class="form-grid"><label class="field wide"><span>Current password</span><input name="current" type="password" required autocomplete="current-password"></label>
+<label class="field wide"><span>New password</span><input name="new" type="password" minlength="8" required autocomplete="new-password"></label>
+<label class="field wide"><span>Repeat new password</span><input name="confirm" type="password" minlength="8" required autocomplete="new-password"></label></div>
+<div class="form-actions"><button class="btn">Update password</button></div></form>
+{% endblock %}

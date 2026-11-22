@@ -1,18 +1,18 @@
-{% extends "base.html" %}{% block title %}Pools - Craft Stash{% endblock %}
+{% extends "base.html" %}{% block title %}Collections - Craft Stash{% endblock %}
 {% macro strip(h) %}<div class="strip">{% for c in (h or '').split(',')[:24] if c %}<i style="--c:{{ c }}"></i>{% endfor %}</div>{% endmacro %}
 {% block body %}
 {% set mine = pools|selectattr('is_owner')|list %}{% set shared = pools|rejectattr('is_owner')|list %}
-<div class="page-head"><h1>Your pools</h1></div>
+<div class="page-head"><h1>Your collections</h1></div>
+<p class="muted" style="margin-top:-8px;margin-bottom:18px">One collection for each craft, like Knitting or Quilting. Each holds that craft's supplies.</p>
 <div class="tiles">
 {% for p in mine %}<a class="tile" href="{{ url_for('pool', pid=p.id) }}">{{ strip(p.hexes) }}
-<div class="tile-body"><h3>{{ p.name }}</h3><span class="muted small">{{ p.craft or 'No craft set' }}</span>
+<div class="tile-body"><h3>{{ p.name }}</h3>{% if p.craft %}<span class="muted small">{{ p.craft }}</span>{% endif %}
 <div class="tile-meta"><span class="pill">{{ p.n }} {{ 'item' if p.n == 1 else 'items' }}</span></div></div></a>{% endfor %}
-<form class="tile add" method="post" action="{{ url_for('new_pool') }}">{{ csrf }}<h3>New pool</h3>
-<label class="field"><span>Name</span><input name="name" required maxlength="80" placeholder="Quilting stash"></label>
-<label class="field"><span>Craft (optional)</span><input name="craft" maxlength="80" placeholder="Quilting"></label>
-<button class="btn"><svg class="i"><use href="#i-plus"/></svg>Create pool</button></form></div>
+<form class="tile add" method="post" action="{{ url_for('new_pool') }}">{{ csrf }}<h3>New collection</h3>
+<label class="field"><span>Name</span><input name="name" required maxlength="80" placeholder="Knitting"></label>
+<button class="btn"><svg class="i"><use href="#i-plus"/></svg>Create collection</button></form></div>
 {% if shared %}<h2 class="section-title">Shared with you</h2><div class="tiles">
 {% for p in shared %}<a class="tile" href="{{ url_for('pool', pid=p.id) }}">{{ strip(p.hexes) }}
-<div class="tile-body"><h3>{{ p.name }}</h3><span class="muted small">{{ p.craft or 'No craft set' }}</span>
+<div class="tile-body"><h3>{{ p.name }}</h3>{% if p.craft %}<span class="muted small">{{ p.craft }}</span>{% endif %}
 <div class="tile-meta"><span class="pill accent">{{ 'Can edit' if p.can_edit else 'View only' }}</span><span class="pill">from {{ p.owner }}</span><span class="pill">{{ p.n }} {{ 'item' if p.n == 1 else 'items' }}</span></div></div></a>{% endfor %}</div>{% endif %}
 {% endblock %}

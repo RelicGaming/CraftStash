@@ -1,7 +1,7 @@
-import json, math, os, re, secrets, sqlite3, uuid
+import csv, io, json, math, os, re, secrets, sqlite3, time, uuid
 from pathlib import Path
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
-                   send_from_directory, session, url_for)
+                   send_from_directory, session, url_for, Response)
 from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -45,6 +45,10 @@ def uid(): return g.user["id"]
 with sqlite3.connect(DATA / "craft.db") as _c:
     _c.execute("PRAGMA journal_mode=WAL")
     _c.executescript((Path(__file__).parent / "schema.sql").read_text())
+    if "low_at" not in [r[1] for r in _c.execute("PRAGMA table_info(items)")]:
+        _c.execute("ALTER TABLE items ADD COLUMN low_at REAL")
+        _c.execute("DROP VIEW IF EXISTS stock")
+        _c.executescript((Path(__file__).parent / "schema.sql").read_text())
     for _tid, _fl in _c.execute("SELECT id, fields FROM types").fetchall():
         _fl = json.loads(_fl)
         if _fl and isinstance(_fl[0], str):  # old format: list of names, item extras keyed by name
@@ -126,9 +130,14 @@ def headers(r):
     r.headers["Referrer-Policy"] = "same-origin"
     return r
 
+LOW = "(s.qty<=0 OR (s.low_at IS NOT NULL AND s.qty<=s.low_at))"
+
 @app.context_processor
 def ctx():
-    return {"csrf": Markup(f'<input type="hidden" name="_csrf" value="{session.get("csrf", "")}">')}
+    n = 0
+    if getattr(g, "user", None):
+        n = db().execute(f"SELECT COUNT(*) FROM stock s JOIN access a ON a.pool_id=s.pool_id WHERE a.user_id=? AND {LOW}", (g.user["id"],)).fetchone()[0]
+    return {"csrf": Markup(f'<input type="hidden" name="_csrf" value="{session.get("csrf", "")}">'), "shop_count": n}
 
 @app.get("/healthz")
 def healthz(): return "ok"
@@ -136,14 +145,26 @@ def healthz(): return "ok"
 # ---------- auth ----------
 def no_users(): return db().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
 
+FAILS = {}  # "ip|username" -> recent failure times (single worker, so in-memory is enough)
+
+def throttled(key):
+    now = time.time()
+    if len(FAILS) > 5000: FAILS.clear()
+    FAILS[key] = [t for t in FAILS.get(key, []) if now - t < 600]
+    return len(FAILS[key]) >= 8
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        u = db().execute("SELECT * FROM users WHERE username=?", (clean("username", 40),)).fetchone()
-        if u and check_password_hash(u["pw"], request.form.get("password", "")):
-            session.clear(); session["uid"] = u["id"]
-            return redirect(url_for("home"))
-        flash("Wrong username or password.")
+        name = clean("username", 40); key = f"{request.remote_addr}|{name.lower()}"
+        if throttled(key):
+            flash("Too many failed attempts. Wait a few minutes and try again.")
+        else:
+            u = db().execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
+            if u and check_password_hash(u["pw"], request.form.get("password", "")):
+                FAILS.pop(key, None); session.clear(); session["uid"] = u["id"]
+                return redirect(url_for("home"))
+            FAILS.setdefault(key, []).append(time.time()); flash("Wrong username or password.")
     return render_template("auth.html", mode="login", can_register=no_users() or signups_open())
 
 @app.route("/register", methods=["GET", "POST"])
@@ -226,20 +247,24 @@ def home():
                  WHERE a.user_id=? ORDER BY a.is_owner DESC, p.name""", uid())
     return render_template("home.html", pools=pools)
 
-@app.post("/pools")
+@app.post("/collections")
 def new_pool():
     if clean("name", 80):
         run("INSERT INTO pools(user_id,name,craft) VALUES(?,?,?)", uid(), clean("name", 80), clean("craft", 80))
     return redirect(url_for("home"))
 
-@app.post("/pools/<int:pid>/delete")
+@app.post("/collections/<int:pid>/delete")
 def del_pool(pid):
     pool_of(pid, owner=True); run("DELETE FROM pools WHERE id=?", pid)
     return redirect(url_for("home"))
 
-@app.get("/pools/<int:pid>")
+SORTS = {"name": "name COLLATE NOCASE", "colour": "colour COLLATE NOCASE, name COLLATE NOCASE",
+         "low": "qty ASC, name COLLATE NOCASE", "new": "id DESC"}
+
+@app.get("/collections/<int:pid>")
 def pool(pid):
     p, term, groups = pool_of(pid), request.args.get("q", "").strip(), []
+    sort = request.args.get("sort", "name"); sort = sort if sort in SORTS else "name"
     types = q("SELECT * FROM types WHERE pool_id=? ORDER BY name", pid)
     labels = [f["label"] for t in types for f in json.loads(t["fields"])]
     m = re.match(r"^([^:]{1,40}):\s*(.+)$", term)
@@ -256,13 +281,14 @@ def pool(pid):
             sql += """ AND (name LIKE ? OR colour LIKE ? OR subtype LIKE ? OR notes LIKE ? OR location LIKE ?
                        OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value LIKE ?))"""
             args += [f"%{term}%"] * 6
-        groups.append((t, fl, q(sql + " ORDER BY name", *args)))
+        groups.append((t, fl, q(sql + " ORDER BY " + SORTS[sort], *args)))
     shares = q("""SELECT u.id, u.username, s.can_edit FROM pool_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.pool_id=? ORDER BY u.username""", pid) if p["is_owner"] else []
-    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0],
+    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0], sort=sort,
+                           value=db().execute("SELECT COALESCE(SUM(qty*price),0) FROM stock WHERE pool_id=? AND price IS NOT NULL", (pid,)).fetchone()[0],
                            hexes=[r["hex"] for r in q("SELECT DISTINCT hex FROM stock WHERE pool_id=? AND hex<>'' LIMIT 40", pid)])
 
-@app.post("/pools/<int:pid>/share")
+@app.post("/collections/<int:pid>/share")
 def share_pool(pid):
     pool_of(pid, owner=True); u = find_user()
     if not u or u["id"] == uid(): flash("No such user.")
@@ -272,10 +298,34 @@ def share_pool(pid):
             pid, u["id"], int(request.form.get("role") == "edit"))
     return redirect(url_for("pool", pid=pid))
 
-@app.post("/pools/<int:pid>/unshare/<int:user>")
+@app.post("/collections/<int:pid>/unshare/<int:user>")
 def unshare_pool(pid, user):
     pool_of(pid, owner=True); run("DELETE FROM pool_shares WHERE pool_id=? AND user_id=?", pid, user)
     return redirect(url_for("pool", pid=pid))
+
+@app.post("/collections/<int:pid>/update")
+def update_pool(pid):
+    pool_of(pid, owner=True)
+    if clean("name", 80): run("UPDATE pools SET name=?, craft=? WHERE id=?", clean("name", 80), clean("craft", 80), pid)
+    return redirect(url_for("pool", pid=pid))
+
+@app.get("/collections/<int:pid>/export.csv")
+def export_csv(pid):
+    p = pool_of(pid)
+    types = q("SELECT * FROM types WHERE pool_id=? ORDER BY name", pid)
+    labels = list(dict.fromkeys(f["label"] for t in types for f in json.loads(t["fields"])))
+    safe = lambda v: ("'" + v) if isinstance(v, str) and v and v[0] in "=+-@\t\r" else v   # blocks spreadsheet formula injection
+    out = io.StringIO(); w = csv.writer(out)
+    w.writerow(["Material type", "Name", "Colour", "Variant", "In stock", "Unit", "Price per unit", "Low stock at", "Location", "Notes"] + labels)
+    for t in types:
+        ids = {f["label"]: f["id"] for f in json.loads(t["fields"])}
+        for i in q("SELECT * FROM stock WHERE type_id=? ORDER BY name", t["id"]):
+            x = json.loads(i["extra"])
+            w.writerow([safe(v) for v in [t["name"], i["name"], i["colour"], i["subtype"], i["qty"], t["unit"], i["price"], i["low_at"], i["location"], i["notes"]]
+                        + [x.get(ids[l], "") if l in ids else "" for l in labels]])
+    name = re.sub(r"[^\w.-]+", "_", p["name"]) or "collection"
+    return Response("\ufeff" + out.getvalue(), mimetype="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
 
 # ---------- material types & custom fields ----------
 def new_field(label, typ="text", options=()):
@@ -291,7 +341,7 @@ def label_taken(fl, label, skip=None):
 
 def save_fields(tid, fl): run("UPDATE types SET fields=? WHERE id=?", json.dumps(fl), tid)
 
-@app.post("/pools/<int:pid>/types")
+@app.post("/collections/<int:pid>/types")
 def new_type(pid):
     pool_of(pid, write=True)
     labels = list(dict.fromkeys(f.strip()[:40] for f in re.split(r"[,\n]", request.form.get("fields", "")) if f.strip()))[:12]
@@ -354,32 +404,63 @@ def save_item(t, item_id=None):
         extra[f["id"]] = v
     hexv = request.form.get("hex", "") if request.form.get("has_hex") else ""
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", hexv): hexv = ""
-    price = request.form.get("price", "").strip()
-    vals = (clean("name") or "Unnamed", clean("colour", 60), hexv, clean("subtype", 60),
-            num(request.form.get("qty")), num(price) if price else None,
-            clean("location", 80), clean("notes", 1000), json.dumps(extra))
+    price, low = request.form.get("price", "").strip(), request.form.get("low", "").strip()
+    vals = (clean("name") or "Unnamed", clean("colour", 60), hexv, clean("subtype", 60), num(request.form.get("qty")),
+            num(price) if price else None, num(low) if low else None, clean("location", 80), clean("notes", 1000), json.dumps(extra))
     if item_id:
-        run("UPDATE items SET name=?,colour=?,hex=?,subtype=?,qty=?,price=?,location=?,notes=?,extra=? WHERE id=?", *vals, item_id)
+        run("UPDATE items SET name=?,colour=?,hex=?,subtype=?,qty=?,price=?,low_at=?,location=?,notes=?,extra=? WHERE id=?", *vals, item_id)
     else:
-        run("INSERT INTO items(name,colour,hex,subtype,qty,price,location,notes,extra,type_id) VALUES(?,?,?,?,?,?,?,?,?,?)", *vals, t["id"])
+        run("INSERT INTO items(name,colour,hex,subtype,qty,price,low_at,location,notes,extra,type_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", *vals, t["id"])
     return redirect(url_for("pool", pid=t["pool_id"]))
 
 @app.route("/types/<int:tid>/items/new", methods=["GET", "POST"])
 def item_new(tid):
     t = type_of(tid, True)
     if request.method == "POST": return save_item(t)
-    return render_template("item_form.html", t=t, fields=json.loads(t["fields"]), i=None, extra={})
+    cid = request.args.get("copy", type=int)
+    proto = item_of(cid, True) if cid else None            # "Duplicate": prefill from an existing item
+    if proto and proto["type_id"] != tid: proto = None
+    return render_template("item_form.html", t=t, fields=json.loads(t["fields"]), i=None, proto=proto,
+                           extra=json.loads(proto["extra"]) if proto else {})
 
 @app.route("/items/<int:iid>/edit", methods=["GET", "POST"])
 def item_edit(iid):
     i = item_of(iid, True); t = type_of(i["type_id"], True)
     if request.method == "POST": return save_item(t, iid)
-    return render_template("item_form.html", t=t, fields=json.loads(t["fields"]), i=i, extra=json.loads(i["extra"]))
+    return render_template("item_form.html", t=t, fields=json.loads(t["fields"]), i=i, proto=None, extra=json.loads(i["extra"]))
 
 @app.post("/items/<int:iid>/delete")
 def item_del(iid):
     i = item_of(iid, True); run("DELETE FROM items WHERE id=?", iid)
     return redirect(url_for("pool", pid=i["pool_id"]))
+
+def safe_next(default):
+    n = request.form.get("next", "")
+    return n if n.startswith("/") and not n.startswith("//") and "\\" not in n else default
+
+@app.post("/items/<int:iid>/adjust")
+def item_adjust(iid):
+    i = item_of(iid, True); n = num(request.form.get("amount"))
+    if n > 0:
+        run("UPDATE items SET qty=MAX(0, qty+?) WHERE id=?", n if request.form.get("action") == "add" else -n, iid)
+    return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
+
+@app.get("/shopping")
+def shopping():
+    rows = q(f"""SELECT s.*, a.can_edit FROM stock s JOIN access a ON a.pool_id=s.pool_id
+                 WHERE a.user_id=? AND {LOW} ORDER BY s.pname, s.tname, s.name""", uid())
+    return render_template("shopping.html", rows=rows)
+
+@app.route("/account", methods=["GET", "POST"])
+def account():
+    if request.method == "POST":
+        cur, new = request.form.get("current", ""), request.form.get("new", "")
+        if not check_password_hash(g.user["pw"], cur): flash("Your current password is wrong.")
+        elif len(new) < 8: flash("The new password needs 8 or more characters.")
+        elif new != request.form.get("confirm", ""): flash("The new passwords don't match.")
+        else: run("UPDATE users SET pw=? WHERE id=?", generate_password_hash(new), uid()); flash("Password updated.")
+        return redirect(url_for("account"))
+    return render_template("account.html")
 
 # ---------- projects ----------
 @app.get("/projects")
@@ -403,7 +484,7 @@ def new_project():
 @app.get("/projects/<int:id>")
 def project(id):
     pr = project_of(id); mine = pr["user_id"] == uid()
-    assigned = q("""SELECT a.id, a.qty, a.consumed, s.name, s.colour, s.hex, s.subtype, s.tname, s.unit, s.pname
+    assigned = q("""SELECT a.id, a.qty, a.consumed, s.name, s.colour, s.hex, s.subtype, s.tname, s.unit, s.pname, s.price
                     FROM assignments a JOIN stock s ON s.id=a.item_id
                     WHERE a.project_id=? ORDER BY s.pname, s.tname, s.name""", id)
     avail = q("""SELECT s.* FROM stock s JOIN access a ON a.pool_id=s.pool_id
@@ -412,6 +493,7 @@ def project(id):
                   WHERE s.project_id=? ORDER BY u.username""", id) if mine else []
     return render_template("project.html", p=pr, mine=mine, assigned=assigned, avail=avail, shares=shares,
                            hexes=list(dict.fromkeys(a["hex"] for a in assigned if a["hex"])),
+                           cost=sum(a["qty"] * a["price"] for a in assigned if a["price"] is not None),
                            steps=q("SELECT * FROM steps WHERE project_id=? ORDER BY pos", id),
                            files=q("SELECT * FROM files WHERE project_id=? ORDER BY name", id))
 

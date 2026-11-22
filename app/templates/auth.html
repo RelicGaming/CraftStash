@@ -3,7 +3,7 @@
 <div class="auth"><form class="panel" method="post">{{ csrf }}
 <div class="strip"><i style="--c:#3f46b8"></i><i style="--c:#e0679a"></i><i style="--c:#f2b84b"></i><i style="--c:#4fb286"></i><i style="--c:#5ba7d6"></i><i style="--c:#8a5cc2"></i></div>
 <div class="in"><h1>{{ 'Welcome back' if mode == 'login' else 'Create your account' }}</h1>
-<p class="muted">{{ 'Log in to your stash.' if mode == 'login' else 'Your pools and projects stay private until you share them.' }}</p>
+<p class="muted">{{ 'Log in to your stash.' if mode == 'login' else 'Your collections and projects stay private until you share them.' }}</p>
 <div class="form-grid" style="margin:18px 0"><label class="field wide"><span>Username</span><input name="username" required autofocus autocomplete="username"></label>
 <label class="field wide"><span>Password</span><input name="password" type="password" required autocomplete="{{ 'current-password' if mode == 'login' else 'new-password' }}"></label></div>
 <button class="btn block">{{ 'Log in' if mode == 'login' else 'Create account' }}</button>

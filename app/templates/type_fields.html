@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block title %}{{ t.name }} fields - Craft Stash{% endblock %}
 {% block body %}
-<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>Back to pool</a>
+<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>Back to collection</a>
 <div class="page-head"><h1>{{ t.name }}</h1><span class="pill">{{ t.unit }}</span></div>
 <form class="panel" method="post" action="{{ url_for('update_type', tid=t.id) }}">{{ csrf }}<div class="panel-head"><h2>Type details</h2></div>
 <div class="inline"><input name="name" value="{{ t.name }}" required maxlength="60" aria-label="Type name"><input name="unit" value="{{ t.unit }}" maxlength="20" placeholder="Unit" aria-label="Unit"><button class="btn secondary">Save</button></div></form>

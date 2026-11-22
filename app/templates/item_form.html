@@ -1,21 +1,25 @@
 {% extends "base.html" %}{% block title %}{{ 'Edit ' ~ i.name if i else 'Add item' }} - Craft Stash{% endblock %}
 {% block body %}
-<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>Back to pool</a>
-<div class="page-head"><h1>{{ 'Edit ' ~ i.name if i else 'Add ' ~ t.name|lower }}</h1></div>
+{% set src = i or proto %}
+<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>Back to collection</a>
+<div class="page-head"><h1>{{ 'Edit ' ~ i.name if i else 'Add ' ~ t.name|lower }}</h1><span class="grow"></span>
+{% if i %}<div class="actions"><a class="btn secondary sm" href="{{ url_for('item_new', tid=t.id, copy=i.id) }}">Duplicate</a></div>{% endif %}</div>
+{% if proto %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Copied from {{ proto.name }}. Change what differs, like the colour, and save.</span></div>{% endif %}
 <form class="panel" method="post">{{ csrf }}
 <div class="form-grid">
-<label class="field wide"><span>Name</span><input name="name" value="{{ i.name if i }}" required maxlength="120" autofocus></label>
-<label class="field"><span>Colour name</span><input name="colour" value="{{ i.colour if i }}" maxlength="60" placeholder="Dusty rose"></label>
-<div class="field"><span>Swatch</span><div class="inline"><input type="checkbox" id="has_hex" name="has_hex" {{ 'checked' if i and i.hex }}><label for="has_hex">Show swatch</label>
-<input type="color" name="hex" value="{{ (i.hex if i and i.hex) or '#cccccc' }}" aria-label="Swatch colour"></div></div>
-<label class="field"><span>Variant</span><input name="subtype" value="{{ i.subtype if i }}" maxlength="60" placeholder="Merino, 4 ply"></label>
+<label class="field wide"><span>Name</span><input name="name" value="{{ (src.name ~ ' copy') if proto else (i.name if i) }}" required maxlength="120" autofocus></label>
+<label class="field"><span>Colour name</span><input name="colour" value="{{ src.colour if src }}" maxlength="60" placeholder="Dusty rose"></label>
+<div class="field"><span>Swatch</span><div class="inline"><input type="checkbox" id="has_hex" name="has_hex" {{ 'checked' if src and src.hex }}><label for="has_hex">Show swatch</label>
+<input type="color" name="hex" value="{{ (src.hex if src and src.hex) or '#cccccc' }}" aria-label="Swatch colour"></div></div>
+<label class="field"><span>Variant</span><input name="subtype" value="{{ src.subtype if src }}" maxlength="60" placeholder="Merino, 4 ply"></label>
 <label class="field"><span>In stock ({{ t.unit }})</span><input name="qty" type="number" step="any" min="0" value="{{ '%g'|format(i.qty) if i else 0 }}"></label>
-<label class="field"><span>Price per {{ t.unit }}</span><input name="price" type="number" step="0.01" min="0" value="{{ i.price if i and i.price is not none }}"></label>
-<label class="field"><span>Storage location</span><input name="location" value="{{ i.location if i }}" maxlength="80" placeholder="Drawer 3"></label>
+<label class="field"><span>Low stock at ({{ t.unit }})</span><input name="low" type="number" step="any" min="0" value="{{ '%g'|format(src.low_at) if src and src.low_at is not none }}" placeholder="Optional"></label>
+<label class="field"><span>Price per {{ t.unit }}</span><input name="price" type="number" step="0.01" min="0" value="{{ src.price if src and src.price is not none }}"></label>
+<label class="field"><span>Storage location</span><input name="location" value="{{ src.location if src }}" maxlength="80" placeholder="Drawer 3"></label>
 {% for f in fields %}{% set v = extra.get(f.id, '') %}<label class="field"><span>{{ f.label }}</span>
 {% if f.type == 'choice' %}<select name="x_{{ f.id }}"><option value="">Not set</option>{% for o in f.options %}<option {{ 'selected' if v == o }}>{{ o }}</option>{% endfor %}{% if v and v not in f.options %}<option selected>{{ v }}</option>{% endif %}</select>
 {% else %}<input name="x_{{ f.id }}" value="{{ v }}" {{ 'type=number step=any' if f.type == 'number' }} maxlength="200">{% endif %}</label>{% endfor %}
-<label class="field wide"><span>Notes</span><textarea name="notes" rows="3" maxlength="1000">{{ i.notes if i }}</textarea></label></div>
+<label class="field wide"><span>Notes</span><textarea name="notes" rows="3" maxlength="1000">{{ src.notes if src }}</textarea></label></div>
 {% if t.can_edit %}<p class="muted small" style="margin-top:14px">Need another field for {{ t.name|lower }}? <a href="{{ url_for('type_fields', tid=t.id) }}">Manage fields</a></p>{% endif %}
 <div class="form-actions"><button class="btn">Save item</button><a class="btn secondary" href="{{ url_for('pool', pid=t.pool_id) }}">Cancel</a></div></form>
 {% if i %}<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this item</h3><p class="muted small" style="margin:0">It will also be removed from any project using it.</p></div>

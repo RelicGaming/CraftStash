@@ -8,13 +8,14 @@ Self-hosted craft supplies inventory. Flask + SQLite, one container.
 The first account to register becomes admin. After that, use **Admin** to add users, reset passwords, and open/close sign-up.
 
 ## Features
-- Accounts: each person has private pools and projects.
-- Pools (one per craft) → material types → items. Each type has its own custom fields (text, number or dropdown) with your own labels, editable any time (renaming keeps data).
-- Pool sharing: view-only or can-edit. Editors can change stock and assign it to their own projects.
-- Projects: assign items from pools you can edit; "free" = stock minus unused reservations; completing deducts stock.
-- Project sharing (read-only): shared users see materials needed, step-by-step, notes and attached files, but not your stock.
-- Search a pool for any text (including field values) or one field with `Label:value`, e.g. `Width:150`.
-- Attach printable guides/patterns (pdf, images, docs). The project page has a print layout.
+- Accounts: everyone has private collections and projects. Admins manage users; anyone can change their own password.
+- Collections (one per craft, like Knitting) → material types → items. Each type has its own unit and custom fields (text, number or dropdown) with your own labels.
+- Items have a colour swatch, variant, stock, price, storage location and an optional low-stock level. Quick Use/Add buttons adjust stock; Duplicate makes new colourways fast.
+- Search a collection for any text, or one field with `Label:value` (e.g. `Width:150`). Sort by name, colour, lowest stock or newest. Export to CSV.
+- Shopping list: everything out of stock or at its low-stock level, across every collection you can use, with a copy-as-text button.
+- Sharing: collections can be shared view-only or can-edit; projects are shared read-only (materials, steps, files, not your stock).
+- Projects: assign supplies, see the estimated cost, write numbered steps, attach guides and patterns, print a clean sheet. Completing a project deducts the stock.
+- Failed logins are rate limited (8 tries per 10 minutes per user and address).
 
 ## GitHub → Dockhand
 1. Create an empty GitHub repo, then from this folder:

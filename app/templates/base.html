@@ -19,10 +19,11 @@
 <header class="top"><div class="top-in">
 <a class="brand" href="{{ url_for('home') }}"><span class="logo"><svg class="i"><use href="#i-logo"/></svg></span>Craft Stash</a>
 <nav class="tabs" aria-label="Main">
-<a href="{{ url_for('home') }}" {% if ep in ('home','pool','item_new','item_edit','type_fields') %}aria-current="page"{% endif %}>Pools</a>
+<a href="{{ url_for('home') }}" {% if ep in ('home','pool','item_new','item_edit','type_fields') %}aria-current="page"{% endif %}>Collections</a>
 <a href="{{ url_for('projects') }}" {% if ep in ('projects','project') %}aria-current="page"{% endif %}>Projects</a>
+<a href="{{ url_for('shopping') }}" {% if ep == 'shopping' %}aria-current="page"{% endif %}>Shopping list{% if shop_count %}<span class="pill warn count">{{ shop_count }}</span>{% endif %}</a>
 {% if g.user.is_admin %}<a href="{{ url_for('admin') }}" {% if ep == 'admin' %}aria-current="page"{% endif %}>Users</a>{% endif %}</nav>
-<div class="me"><span class="avatar" style="--h:{{ (g.user.id * 67) % 360 }}">{{ g.user.username[0]|upper }}</span><span class="small hide-m">{{ g.user.username }}</span>
+<div class="me"><a class="who" href="{{ url_for('account') }}" title="Your account"><span class="avatar" style="--h:{{ (g.user.id * 67) % 360 }}">{{ g.user.username[0]|upper }}</span><span class="small hide-m">{{ g.user.username }}</span></a>
 <form method="post" action="{{ url_for('logout') }}">{{ csrf }}<button class="btn ghost sm" title="Log out"><svg class="i"><use href="#i-out"/></svg><span class="hide-m">Log out</span></button></form></div>
 </div></header>{% endif %}
 <main class="wrap">{% for m in get_flashed_messages() %}<div class="notice" role="status"><svg class="i"><use href="#i-info"/></svg><span>{{ m }}</span></div>{% endfor %}

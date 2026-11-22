@@ -133,3 +133,10 @@ th{font-size:.85rem;color:var(--muted);font-weight:620;border-top:0}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 @media print{.top,.tabs,.btn,form,.noprint,.back{display:none!important}.print-only{display:block}
 body{background:#fff;color:#000;padding:0}.panel,.type{border:0;padding:0}.cols{display:block}}
+
+/* v3 additions */
+.me a.who{display:flex;align-items:center;gap:8px;color:var(--ink)}.me a.who:hover{text-decoration:none}
+.count{margin-left:6px}
+details.adjust{margin-top:4px}details.adjust>summary{cursor:pointer;color:var(--muted);font-size:.82rem;display:inline-block}
+details.adjust>summary:hover{color:var(--accent)}details.adjust form{margin-top:6px}
+@media(max-width:700px){.tabs a{font-size:.88rem;padding:10px 2px}}
