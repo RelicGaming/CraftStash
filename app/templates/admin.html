@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block body %}
+<h1>Users</h1>
+<section class="card"><div class="scroll"><table><tr><th>User<th>Pools<th>Projects<th>Reset password<th></tr>
+{% for u in users %}<tr><td><strong>{{ u.username }}</strong>{% if u.is_admin %} <span class="pill">admin</span>{% endif %}
+<td>{{ u.pools }}<td>{{ u.projects }}
+<td><form class="row" method="post" action="{{ url_for('admin_password', id=u.id) }}" style="margin:0">{{ csrf }}<input name="password" type="password" placeholder="New password" minlength="8" required style="width:10rem"><button>Set</button></form>
+<td>{% if u.id != g.user.id %}<div class="row" style="margin:0">
+<form method="post" action="{{ url_for('admin_toggle', id=u.id) }}">{{ csrf }}<button class="link">{{ 'Remove admin' if u.is_admin else 'Make admin' }}</button></form>
+<form method="post" action="{{ url_for('admin_delete', id=u.id) }}" onsubmit="return confirm('Delete {{ u.username }} and all their pools, projects and files?')">{{ csrf }}<button class="link">Delete</button></form></div>{% endif %}</tr>{% endfor %}</table></div></section>
+<form class="card" method="post" action="{{ url_for('admin_create') }}">{{ csrf }}<h3>Add user</h3>
+<div class="row"><input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password (8+)" minlength="8" required>
+<label style="margin:0"><input type="checkbox" name="is_admin"> admin</label><button>Create</button></div></form>
+<form class="card" method="post" action="{{ url_for('admin_signups') }}">{{ csrf }}<h3>Open sign-up</h3>
+<p class="mut">Sign-up is currently <strong>{{ 'open: anyone who can reach the site can create an account' if signups else 'closed: only admins can add users' }}</strong>.</p>
+<button>{{ 'Close sign-up' if signups else 'Open sign-up' }}</button></form>
+{% endblock %}

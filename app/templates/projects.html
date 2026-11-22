@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block body %}
+<h1>Projects</h1>
+<div class="grid">{% for p in rows %}<a class="card" href="{{ url_for('project', id=p.id) }}"><strong>{{ p.name }}</strong><br><span class="mut">{{ p.status }}{% if p.user_id != g.user.id %} · shared by {{ p.owner }}{% endif %}</span></a>
+{% else %}<p class="mut">No projects yet.</p>{% endfor %}</div>
+<form class="card" method="post" action="{{ url_for('new_project') }}">{{ csrf }}<h3>New project</h3>
+<div class="row"><input name="name" placeholder="Project name" required maxlength="100"><button>Create</button></div></form>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block body %}
+<h1>Your pools</h1>
+<div class="grid">{% for p in pools %}
+<a class="card" href="{{ url_for('pool', pid=p.id) }}"><strong>{{ p.name }}</strong>{% if not p.is_owner %} <span class="pill">{{ 'can edit' if p.can_edit else 'view only' }}</span>{% endif %}<br>
+<span class="mut">{{ p.craft }}{% if p.craft %} · {% endif %}{{ p.n }} items{% if not p.is_owner %} · from {{ p.owner }}{% endif %}</span></a>
+{% else %}<p class="mut">No pools yet. Make one per craft: knitting, quilting, beading…</p>{% endfor %}</div>
+<form class="card" method="post" action="{{ url_for('new_pool') }}">{{ csrf }}<h3>New pool</h3>
+<div class="row"><input name="name" placeholder="Pool name" required maxlength="80"><input name="craft" placeholder="Craft (optional)" maxlength="80"><button>Create</button></div></form>
+{% endblock %}

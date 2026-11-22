@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Craft Stash{% endblock %}</title>
+<style>
+:root{--bg:#faf8f5;--fg:#2b2622;--card:#fff;--line:#e4ddd3;--acc:#a4472f;--mut:#7a7066}
+@media(prefers-color-scheme:dark){:root{--bg:#1c1a18;--fg:#ece6df;--card:#262320;--line:#3a3530;--acc:#e08a6d;--mut:#9a9086}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+main{max-width:1000px;margin:0 auto;padding:1rem}a{color:var(--acc)}
+nav{display:flex;gap:1rem;align-items:center;padding:.6rem 1rem;border-bottom:1px solid var(--line);background:var(--card)}
+nav a{color:var(--fg);text-decoration:none}nav .sp{flex:1}
+.card{display:block;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem;margin:0 0 1rem;color:inherit;text-decoration:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:1rem}.grid .card{margin:0}
+.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem}
+input,select,textarea,button,.btn{font:inherit;padding:.4rem .6rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+textarea{width:100%}label{display:block;margin:.5rem 0 .2rem;color:var(--mut)}
+button,.btn{background:var(--acc);color:#fff;border-color:var(--acc);cursor:pointer;text-decoration:none}
+button.link{background:none;border:0;color:var(--acc);padding:0}
+.mut{color:var(--mut)}.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+.sw{display:inline-block;width:.9em;height:.9em;border-radius:50%;border:1px solid var(--line);margin-right:.3em;vertical-align:-1px}
+.flash{background:var(--card);border-left:4px solid var(--acc);padding:.5rem 1rem;margin-bottom:1rem}
+summary{cursor:pointer;color:var(--acc)}ol.steps{padding-left:1.2rem}ol.steps li{margin-bottom:1rem}.pill{font-size:.75em;border:1px solid var(--line);border-radius:99px;padding:0 .5em;color:var(--mut)}
+@media print{details{display:none}nav,.noprint,button,form{display:none!important}body{background:#fff;color:#000}.card{border:0}}
+</style></head><body>
+{% if g.user %}<nav><a href="{{ url_for('home') }}"><strong>🧵 Craft Stash</strong></a><a href="{{ url_for('home') }}">Pools</a><a href="{{ url_for('projects') }}">Projects</a>{% if g.user.is_admin %}<a href="{{ url_for('admin') }}">Admin</a>{% endif %}<span class="sp"></span><span class="mut">{{ g.user.username }}</span>
+<form method="post" action="{{ url_for('logout') }}" style="margin:0">{{ csrf }}<button class="link">Log out</button></form></nav>{% endif %}
+<main>{% for m in get_flashed_messages() %}<div class="flash">{{ m }}</div>{% endfor %}{% block body %}{% endblock %}</main>
+</body></html>

@@ -1,0 +1,21 @@
+services:
+  craft-stash:
+    build: .                                  # builds from this repo if the host can
+    image: ${IMAGE:-craft-stash:latest}       # or set IMAGE=ghcr.io/<you>/craft-stash:latest to pull the CI-built image
+    container_name: craft-stash
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8000"
+    environment:
+      ALLOW_SIGNUP: "${ALLOW_SIGNUP:-1}"      # only the default; the admin page can override it
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"    # set to 1 when served over HTTPS
+      SECRET_KEY: "${SECRET_KEY:-}"           # optional; auto-generated into the volume if empty
+    volumes:
+      - craft-data:/data                      # DB + uploaded guides
+      # Unraid-style bind mount instead:
+      # - /mnt/user/appdata/craft-stash:/data
+    mem_limit: 256m
+
+volumes:
+  craft-data:
