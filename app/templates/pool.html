@@ -3,26 +3,27 @@
 <div class="row"><h1 style="flex:1;margin:0">{{ pool.name }} <small class="mut">{{ pool.craft }}</small>
 {% if not pool.is_owner %}<span class="pill">{{ 'can edit' if pool.can_edit else 'view only' }} · from {{ pool.owner }}</span>{% endif %}</h1>
 {% if pool.is_owner %}<form method="post" action="{{ url_for('del_pool', pid=pool.id) }}" onsubmit="return confirm('Delete this pool and everything in it?')">{{ csrf }}<button class="link">Delete pool</button></form>{% endif %}</div>
-<form class="row" method="get"><input name="q" value="{{ term }}" placeholder="Search name, colour, type, notes" style="flex:1"><button>Search</button></form>
-{% for t, rows in groups %}
+<form class="row" method="get"><input name="q" value="{{ term }}" placeholder="Search everything, or a field like {{ hint }}:value" style="flex:1"><button>Search</button>{% if term %}<a href="{{ url_for('pool', pid=pool.id) }}">Clear</a>{% endif %}</form>
+{% for t, fl, rows in groups %}
 <section class="card">
 <div class="row"><h2 style="margin:0;flex:1">{{ t.name }} <small class="mut">({{ t.unit }})</small></h2>
 {% if pool.can_edit %}<a class="btn" href="{{ url_for('item_new', tid=t.id) }}">+ Add item</a>
+<a href="{{ url_for('type_fields', tid=t.id) }}">Fields</a>
 <form method="post" action="{{ url_for('del_type', tid=t.id) }}" onsubmit="return confirm('Delete this material type and all its items?')">{{ csrf }}<button class="link">Delete type</button></form>{% endif %}</div>
-{% if rows %}<div class="scroll"><table><tr><th>Item<th>Colour<th>Type<th>Stock<th>Free<th>Price/unit<th>Details<th></tr>
+{% if rows %}<div class="scroll"><table><tr><th>Item<th>Colour<th>Type<th>Stock<th>Free<th>Price/unit{% for f in fl %}<th>{{ f.label }}{% endfor %}<th>Location<th></tr>
 {% for i in rows %}<tr><td>{{ i.name }}
 <td>{% if i.hex %}<span class="sw" style="background:{{ i.hex }}"></span>{% endif %}{{ i.colour }}
 <td>{{ i.subtype }}<td>{{ '%g'|format(i.qty) }}<td>{{ '%g'|format(i.free) }}
 <td>{% if i.price is not none %}${{ '%.2f'|format(i.price) }}{% endif %}
-<td class="mut">{% for k, v in (i.extra|fromjson).items() if v %}{{ k }}: {{ v }}{% if not loop.last %} · {% endif %}{% endfor %}{% if i.location %} · {{ i.location }}{% endif %}
+{% set x = i.extra|fromjson %}{% for f in fl %}<td>{{ x.get(f.id, '') }}{% endfor %}<td class="mut">{{ i.location }}
 <td>{% if pool.can_edit %}<a href="{{ url_for('item_edit', iid=i.id) }}">Edit</a>{% endif %}</tr>{% endfor %}</table></div>
 {% else %}<p class="mut">{{ 'No matches.' if term else 'Nothing here yet.' }}</p>{% endif %}
 </section>{% endfor %}
 {% if pool.can_edit %}
 <form class="card" method="post" action="{{ url_for('new_type', pid=pool.id) }}">{{ csrf }}<h3>New material type</h3>
-<p class="mut">e.g. Fabric (m) with fields "Width, Fibre, Weight"; Thread (skein) with "Brand, Weight".</p>
+<p class="mut">e.g. Fabric (m), Thread (skein). Add starter field labels here; you can add more, and set number or dropdown types, on the next screen.</p>
 <div class="row"><input name="name" placeholder="Name (Fabric)" required maxlength="60"><input name="unit" placeholder="Unit (m, g, skein)" maxlength="20"></div>
-<label>Extra fields (comma or line separated)</label><textarea name="fields" rows="2" placeholder="Width, Fibre, Weight"></textarea>
+<label>Starter fields (optional, comma separated)</label><textarea name="fields" rows="2" placeholder="Width, Fibre, Weight"></textarea>
 <p><button>Add type</button></p></form>{% endif %}
 {% if pool.is_owner %}
 <section class="card"><h3>Sharing</h3>

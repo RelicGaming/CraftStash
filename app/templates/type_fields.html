@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block body %}
+<p><a href="{{ url_for('pool', pid=t.pool_id) }}">← Back to pool</a></p>
+<h1>{{ t.name }}: fields</h1>
+<form class="card row" method="post" action="{{ url_for('update_type', tid=t.id) }}">{{ csrf }}
+<input name="name" value="{{ t.name }}" required maxlength="60"><input name="unit" value="{{ t.unit }}" maxlength="20" placeholder="Unit"><button>Rename type</button></form>
+<section class="card"><h3>Custom fields</h3>
+<p class="mut">Each field appears on every item of this type, as a column in the pool and in search (search <em>everything</em>, or <em>Label:value</em> for one field). Renaming a field keeps its data. Deleting one removes its values.</p>
+{% for f in fields %}<form class="row" method="post" action="{{ url_for('update_field', tid=t.id, fid=f.id) }}">{{ csrf }}
+<input name="label" value="{{ f.label }}" required maxlength="40">
+<select name="type">{% for ty in ('text','number','choice') %}<option {{ 'selected' if f.type == ty }}>{{ ty }}</option>{% endfor %}</select>
+<input name="options" value="{{ f.options|join(', ') }}" placeholder="Dropdown options, comma separated" style="flex:1;min-width:12rem"><button>Save</button>
+<button class="link" formaction="{{ url_for('delete_field', tid=t.id, fid=f.id) }}" onclick="return confirm('Delete this field and its values on every item?')">Delete</button></form>
+{% else %}<p class="mut">No fields yet.</p>{% endfor %}</section>
+<form class="card" method="post" action="{{ url_for('add_field', tid=t.id) }}">{{ csrf }}<h3>Add a field</h3>
+<div class="row"><input name="label" placeholder="Label (Width, Fibre, Weight…)" required maxlength="40">
+<select name="type"><option>text</option><option>number</option><option>choice</option></select>
+<input name="options" placeholder="Options if choice: Cotton, Linen, Wool" style="flex:1;min-width:12rem"><button>Add field</button></div></form>
+{% endblock %}

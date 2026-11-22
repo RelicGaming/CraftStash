@@ -45,6 +45,15 @@ def uid(): return g.user["id"]
 with sqlite3.connect(DATA / "craft.db") as _c:
     _c.execute("PRAGMA journal_mode=WAL")
     _c.executescript((Path(__file__).parent / "schema.sql").read_text())
+    for _tid, _fl in _c.execute("SELECT id, fields FROM types").fetchall():
+        _fl = json.loads(_fl)
+        if _fl and isinstance(_fl[0], str):  # old format: list of names, item extras keyed by name
+            _ids = {l: f"f{n}" for n, l in enumerate(_fl)}
+            for _iid, _ex in _c.execute("SELECT id, extra FROM items WHERE type_id=?", (_tid,)).fetchall():
+                _c.execute("UPDATE items SET extra=? WHERE id=?",
+                           (json.dumps({_ids[k]: v for k, v in json.loads(_ex).items() if k in _ids}), _iid))
+            _c.execute("UPDATE types SET fields=? WHERE id=?",
+                       (json.dumps([{"id": _ids[l], "label": l, "type": "text", "options": []} for l in _fl]), _tid))
 
 def num(v, default=0.0):
     try: x = float(v)
@@ -230,15 +239,26 @@ def del_pool(pid):
 @app.get("/pools/<int:pid>")
 def pool(pid):
     p, term, groups = pool_of(pid), request.args.get("q", "").strip(), []
-    for t in q("SELECT * FROM types WHERE pool_id=? ORDER BY name", pid):
+    types = q("SELECT * FROM types WHERE pool_id=? ORDER BY name", pid)
+    labels = [f["label"] for t in types for f in json.loads(t["fields"])]
+    m = re.match(r"^([^:]{1,40}):\s*(.+)$", term)
+    keyed = bool(m) and m[1].strip().lower() in {l.lower() for l in labels}   # "Width:150" filters that field
+    for t in types:
+        fl = json.loads(t["fields"])
         sql, args = "SELECT * FROM stock WHERE type_id=?", [t["id"]]
-        if term:
-            sql += " AND (name LIKE ? OR colour LIKE ? OR subtype LIKE ? OR notes LIKE ? OR extra LIKE ?)"
-            args += [f"%{term}%"] * 5
-        groups.append((t, q(sql + " ORDER BY name", *args)))
+        if keyed:
+            ids = [f["id"] for f in fl if f["label"].lower() == m[1].strip().lower()]
+            if not ids: continue
+            sql += " AND (" + " OR ".join(["json_extract(extra, ?) LIKE ?"] * len(ids)) + ")"
+            for i in ids: args += [f'$."{i}"', f"%{m[2].strip()}%"]
+        elif term:
+            sql += """ AND (name LIKE ? OR colour LIKE ? OR subtype LIKE ? OR notes LIKE ? OR location LIKE ?
+                       OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value LIKE ?))"""
+            args += [f"%{term}%"] * 6
+        groups.append((t, fl, q(sql + " ORDER BY name", *args)))
     shares = q("""SELECT u.id, u.username, s.can_edit FROM pool_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.pool_id=? ORDER BY u.username""", pid) if p["is_owner"] else []
-    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares)
+    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0])
 
 @app.post("/pools/<int:pid>/share")
 def share_pool(pid):
@@ -255,14 +275,28 @@ def unshare_pool(pid, user):
     pool_of(pid, owner=True); run("DELETE FROM pool_shares WHERE pool_id=? AND user_id=?", pid, user)
     return redirect(url_for("pool", pid=pid))
 
-# ---------- material types ----------
+# ---------- material types & custom fields ----------
+def new_field(label, typ="text", options=()):
+    return {"id": "f" + secrets.token_hex(3), "label": label, "type": typ, "options": list(options)}
+
+def field_form():
+    typ = request.form.get("type")
+    opts = [o.strip()[:60] for o in request.form.get("options", "").split(",") if o.strip()][:30]
+    return clean("label", 40), (typ if typ in ("text", "number", "choice") else "text"), opts
+
+def label_taken(fl, label, skip=None):
+    return any(f["label"].lower() == label.lower() and f["id"] != skip for f in fl)
+
+def save_fields(tid, fl): run("UPDATE types SET fields=? WHERE id=?", json.dumps(fl), tid)
+
 @app.post("/pools/<int:pid>/types")
 def new_type(pid):
     pool_of(pid, write=True)
-    fields = [f.strip()[:40] for f in re.split(r"[,\n]", request.form.get("fields", "")) if f.strip()][:12]
+    labels = list(dict.fromkeys(f.strip()[:40] for f in re.split(r"[,\n]", request.form.get("fields", "")) if f.strip()))[:12]
     if clean("name", 60):
-        run("INSERT INTO types(pool_id,name,unit,fields) VALUES(?,?,?,?)",
-            pid, clean("name", 60), clean("unit", 20) or "pcs", json.dumps(list(dict.fromkeys(fields))))
+        c = run("INSERT INTO types(pool_id,name,unit,fields) VALUES(?,?,?,?)", pid, clean("name", 60),
+                clean("unit", 20) or "pcs", json.dumps([new_field(l) for l in labels]))
+        return redirect(url_for("type_fields", tid=c.lastrowid))
     return redirect(url_for("pool", pid=pid))
 
 @app.post("/types/<int:tid>/delete")
@@ -270,9 +304,52 @@ def del_type(tid):
     t = type_of(tid, True); run("DELETE FROM types WHERE id=?", tid)
     return redirect(url_for("pool", pid=t["pool_id"]))
 
+@app.get("/types/<int:tid>/fields")
+def type_fields(tid):
+    t = type_of(tid, True)
+    return render_template("type_fields.html", t=t, fields=json.loads(t["fields"]))
+
+@app.post("/types/<int:tid>/update")
+def update_type(tid):
+    type_of(tid, True)
+    if clean("name", 60): run("UPDATE types SET name=?, unit=? WHERE id=?", clean("name", 60), clean("unit", 20) or "pcs", tid)
+    return redirect(url_for("type_fields", tid=tid))
+
+@app.post("/types/<int:tid>/fields")
+def add_field(tid):
+    t = type_of(tid, True); fl = json.loads(t["fields"]); label, typ, opts = field_form()
+    if not label: flash("Give the field a label.")
+    elif label_taken(fl, label): flash("A field with that label already exists.")
+    elif len(fl) >= 20: flash("Maximum 20 fields per type.")
+    else: fl.append(new_field(label, typ, opts)); save_fields(tid, fl)
+    return redirect(url_for("type_fields", tid=tid))
+
+@app.post("/types/<int:tid>/fields/<fid>/update")
+def update_field(tid, fid):
+    t = type_of(tid, True); fl = json.loads(t["fields"]); label, typ, opts = field_form()
+    f = next((f for f in fl if f["id"] == fid), None) or abort(404)
+    if not label or label_taken(fl, label, fid): flash("Label is empty or already used by another field.")
+    else: f.update(label=label, type=typ, options=opts); save_fields(tid, fl)
+    return redirect(url_for("type_fields", tid=tid))
+
+@app.post("/types/<int:tid>/fields/<fid>/delete")
+def delete_field(tid, fid):
+    t = type_of(tid, True)
+    if not re.fullmatch(r"f\w{1,8}", fid): abort(404)
+    d = db(); d.execute("UPDATE types SET fields=? WHERE id=?",
+                        (json.dumps([f for f in json.loads(t["fields"]) if f["id"] != fid]), tid))
+    d.execute("UPDATE items SET extra=json_remove(extra, ?) WHERE type_id=?", (f'$."{fid}"', tid)); d.commit()
+    return redirect(url_for("type_fields", tid=tid))
+
 # ---------- items ----------
 def save_item(t, item_id=None):
-    extra = {f: (request.form.get(f"x{n}") or "").strip()[:200] for n, f in enumerate(json.loads(t["fields"]))}
+    extra = {}
+    for f in json.loads(t["fields"]):
+        v = (request.form.get("x_" + f["id"]) or "").strip()[:200]
+        if f["type"] == "number" and v:
+            try: x = float(v); v = f"{x:g}" if math.isfinite(x) else ""
+            except ValueError: v = ""
+        extra[f["id"]] = v
     hexv = request.form.get("hex", "") if request.form.get("has_hex") else ""
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", hexv): hexv = ""
     price = request.form.get("price", "").strip()

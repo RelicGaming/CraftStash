@@ -9,10 +9,11 @@ The first account to register becomes admin. After that, use **Admin** to add us
 
 ## Features
 - Accounts: each person has private pools and projects.
-- Pools (one per craft) → material types (own unit + custom fields) → items (colour, swatch, variant, stock, price, extras).
+- Pools (one per craft) → material types → items. Each type has its own custom fields (text, number or dropdown) with your own labels, editable any time (renaming keeps data).
 - Pool sharing: view-only or can-edit. Editors can change stock and assign it to their own projects.
 - Projects: assign items from pools you can edit; "free" = stock minus unused reservations; completing deducts stock.
 - Project sharing (read-only): shared users see materials needed, step-by-step, notes and attached files, but not your stock.
+- Search a pool for any text (including field values) or one field with `Label:value`, e.g. `Width:150`.
 - Attach printable guides/patterns (pdf, images, docs). The project page has a print layout.
 
 ## GitHub → Dockhand
