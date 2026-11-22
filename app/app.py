@@ -5,6 +5,7 @@ from flask import (Flask, abort, flash, g, redirect, render_template, request,
 from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+import themes
 
 DATA = Path(os.environ.get("DATA_DIR", "/data"))
 UPLOADS = DATA / "uploads"
@@ -45,6 +46,8 @@ def uid(): return g.user["id"]
 with sqlite3.connect(DATA / "craft.db") as _c:
     _c.execute("PRAGMA journal_mode=WAL")
     _c.executescript((Path(__file__).parent / "schema.sql").read_text())
+    if "theme" not in [r[1] for r in _c.execute("PRAGMA table_info(users)")]:
+        _c.execute("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''")
     if "low_at" not in [r[1] for r in _c.execute("PRAGMA table_info(items)")]:
         _c.execute("ALTER TABLE items ADD COLUMN low_at REAL")
         _c.execute("DROP VIEW IF EXISTS stock")
@@ -137,7 +140,9 @@ def ctx():
     n = 0
     if getattr(g, "user", None):
         n = db().execute(f"SELECT COUNT(*) FROM stock s JOIN access a ON a.pool_id=s.pool_id WHERE a.user_id=? AND {LOW}", (g.user["id"],)).fetchone()[0]
-    return {"csrf": Markup(f'<input type="hidden" name="_csrf" value="{session.get("csrf", "")}">'), "shop_count": n}
+    css = themes.css_for(g.user["theme"]) if getattr(g, "user", None) else ""   # built only from validated hex/enum values
+    return {"csrf": Markup(f'<input type="hidden" name="_csrf" value="{session.get("csrf", "")}">'), "shop_count": n,
+            "theme_css": Markup(css)}
 
 @app.get("/healthz")
 def healthz(): return "ok"
@@ -450,6 +455,15 @@ def shopping():
     rows = q(f"""SELECT s.*, a.can_edit FROM stock s JOIN access a ON a.pool_id=s.pool_id
                  WHERE a.user_id=? AND {LOW} ORDER BY s.pname, s.tname, s.name""", uid())
     return render_template("shopping.html", rows=rows)
+
+@app.route("/appearance", methods=["GET", "POST"])
+def appearance():
+    if request.method == "POST":
+        if request.form.get("reset"): run("UPDATE users SET theme='' WHERE id=?", uid()); flash("Appearance reset to the default.")
+        else: run("UPDATE users SET theme=? WHERE id=?", json.dumps(themes.from_form(request.form)), uid()); flash("Appearance saved.")
+        return redirect(url_for("appearance"))
+    return render_template("appearance.html", cur=themes.load(g.user["theme"]), themes=themes.preset_list(),
+                           radii=list(themes.RADII), default=themes.DEFAULT_CUSTOM)
 
 @app.route("/account", methods=["GET", "POST"])
 def account():

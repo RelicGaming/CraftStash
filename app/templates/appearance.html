@@ -1,0 +1,45 @@
+{% extends "base.html" %}{% block title %}Appearance - Craft Stash{% endblock %}
+{% macro preview(bg, surface, ink, accent, accent_ink) %}<div class="tp" style="--bg:{{ bg }};--surface:{{ surface }};--ink:{{ ink }};--accent:{{ accent }};--accent-ink:{{ accent_ink }}">
+<div class="tp-strip"><i style="background:#e0679a"></i><i style="background:#f2b84b"></i><i style="background:#4fb286"></i><i style="background:#5ba7d6"></i><i style="background:#8a5cc2"></i></div>
+<div class="tp-card"><div class="tp-line"></div><div class="tp-line s"></div><div class="tp-btn"></div></div></div>{% endmacro %}
+{% block body %}
+{% set cu = cur.custom %}
+<div class="page-head"><h1>Appearance</h1></div>
+<form method="post" id="theme-form">{{ csrf }}
+<section class="panel"><div class="panel-head"><h2>Theme</h2></div>
+<div class="theme-grid">
+<label class="theme-opt"><input class="sr" type="radio" name="theme" value="system" {{ 'checked' if cur.name == 'system' }}>
+<div class="tp-pair">{% set a = themes[0] %}{% set b = themes[1] %}{{ preview(a.bg, a.surface, a.ink, a.accent, a.accent_ink) }}{{ preview(b.bg, b.surface, b.ink, b.accent, b.accent_ink) }}</div><span>Match my device</span></label>
+{% for t in themes %}<label class="theme-opt"><input class="sr" type="radio" name="theme" value="{{ t.key }}" data-mode="{{ t.mode }}" data-bg="{{ t.bg }}" data-surface="{{ t.surface }}" data-ink="{{ t.ink }}" data-accent="{{ t.accent }}" {{ 'checked' if cur.name == t.key }}>
+{{ preview(t.bg, t.surface, t.ink, t.accent, t.accent_ink) }}<span>{{ t.label }}</span></label>{% endfor %}
+<label class="theme-opt"><input class="sr" type="radio" name="theme" value="custom" {{ 'checked' if cur.name == 'custom' }}>
+<div id="custom-preview">{{ preview(cu.bg, cu.surface, cu.ink, cu.accent, '#ffffff') }}</div><span>Custom</span></label>
+</div></section>
+
+<section class="panel" id="custom"><div class="panel-head"><div><h2>Custom colours</h2><p class="muted small" style="margin:2px 0 0">Pick a theme above to start from its colours, then tweak. Changing any colour switches you to Custom.</p></div></div>
+<div class="form-grid">
+<label class="field"><span>Background</span><input type="color" name="bg" value="{{ cu.bg }}"></label>
+<label class="field"><span>Cards and panels</span><input type="color" name="surface" value="{{ cu.surface }}"></label>
+<label class="field"><span>Text</span><input type="color" name="ink" value="{{ cu.ink }}"></label>
+<label class="field"><span>Accent (buttons, links)</span><input type="color" name="accent" value="{{ cu.accent }}"></label>
+<label class="field"><span>Style</span><select name="mode"><option value="light" {{ 'selected' if cu.mode == 'light' }}>Light colours</option><option value="dark" {{ 'selected' if cu.mode == 'dark' }}>Dark colours</option></select></label></div>
+<p class="small muted" id="contrast" style="margin-top:12px"></p></section>
+
+<section class="panel"><div class="panel-head"><h2>Corners</h2></div>
+<div class="theme-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));max-width:420px">
+{% for r, label, px in (('square','Square','4px'),('soft','Soft','14px'),('round','Round','22px')) %}<label class="theme-opt radius-opt"><input class="sr" type="radio" name="radius" value="{{ r }}" {{ 'checked' if cur.radius == r }}><div class="rbox" style="border-radius:{{ px }}"></div><span>{{ label }}</span></label>{% endfor %}</div></section>
+
+<div class="form-actions" style="margin-bottom:24px"><button class="btn">Save appearance</button><button class="btn secondary" name="reset" value="1" formnovalidate onclick="return confirm('Reset to the default appearance?')">Reset to default</button></div>
+</form>
+<script>(()=>{const f=document.getElementById('theme-form'),pv=document.getElementById('custom-preview').firstElementChild,out=document.getElementById('contrast'),
+rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255),lin=c=>c<=.03928?c/12.92:((c+.055)/1.055)**2.4,
+L=h=>{const[r,g,b]=rgb(h).map(lin);return .2126*r+.7152*g+.0722*b},CR=(a,b)=>{const x=L(a),y=L(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05)},
+v=n=>f.elements[n].value;
+function paint(){const ac=v('accent'),t=CR(v('ink'),v('surface')),a=CR(ac,v('surface'));
+pv.style.cssText=`--bg:${v('bg')};--surface:${v('surface')};--ink:${v('ink')};--accent:${ac};--accent-ink:${CR(ac,'#ffffff')>=CR(ac,'#111322')?'#ffffff':'#111322'}`;
+out.textContent=`Text on cards: ${t.toFixed(1)}:1 ${t>=4.5?'(good)':'(hard to read, aim for 4.5 or more)'}. Accent on cards: ${a.toFixed(1)}:1 ${a>=3?'(good)':'(low, aim for 3 or more)'}.`}
+['bg','surface','ink','accent'].forEach(n=>f.elements[n].addEventListener('input',()=>{f.querySelector('input[name=theme][value=custom]').checked=true;paint()}));
+f.elements.mode.addEventListener('change',()=>{f.querySelector('input[name=theme][value=custom]').checked=true});
+f.querySelectorAll('input[name=theme]').forEach(r=>r.addEventListener('change',()=>{if(r.dataset.bg){['bg','surface','ink','accent'].forEach(n=>f.elements[n].value=r.dataset[n]);f.elements.mode.value=r.dataset.mode;paint()}}));
+paint()})()</script>
+{% endblock %}

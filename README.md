@@ -15,6 +15,7 @@ The first account to register becomes admin. After that, use **Admin** to add us
 - Shopping list: everything out of stock or at its low-stock level, across every collection you can use, with a copy-as-text button.
 - Sharing: collections can be shared view-only or can-edit; projects are shared read-only (materials, steps, files, not your stock).
 - Projects: assign supplies, see the estimated cost, write numbered steps, attach guides and patterns, print a clean sheet. Completing a project deducts the stock.
+- Appearance: each user picks a theme (match device, Indigo light or dark, Forest, Blush, Ocean, Ember) or builds a custom one from four colours, plus a corner style. Saved per account.
 - Failed logins are rate limited (8 tries per 10 minutes per user and address).
 
 ## GitHub → Dockhand
