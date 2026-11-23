@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}Activity - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('pool', pid=pool.id) }}"><svg class="i"><use href="#i-chev-l"/></svg>{{ pool.name }}</a>
+<div class="page-head"><h1>Activity</h1></div>
+<section class="panel">{% for a in rows %}<div class="list-row"><div class="grow">{{ a.text }}<div class="muted small">{{ a.username or 'Someone' }}, {{ a.ts|local }}</div></div>
+{% if a.undone %}<span class="pill">Undone</span>{% elif a.kind == 'adjust' and a.item_exists and pool.can_edit %}<form method="post" action="{{ url_for('undo', aid=a.id) }}">{{ csrf }}<button class="btn secondary sm">Undo</button></form>{% endif %}</div>
+{% else %}<p class="muted">Nothing yet. Stock changes, edits, imports and finished projects show up here.</p>{% endfor %}
+{% if rows|length >= 200 %}<p class="muted small">Showing the latest 200.</p>{% endif %}</section>
+{% endblock %}

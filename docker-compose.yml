@@ -1,21 +1,34 @@
 services:
   craft-stash:
     build: .                                  # builds from this repo if the host can
-    image: ${IMAGE:-craft-stash:latest}       # or set IMAGE=ghcr.io/<you>/craft-stash:latest to pull the CI-built image
+    image: ${IMAGE:-craft-stash:latest}       # or set IMAGE=ghcr.io/<you>/craftstash:latest to pull the CI-built image
     container_name: craft-stash
     restart: unless-stopped
     ports:
-      - "${PORT:-8080}:8000"
+      - "${PORT:-8080}:8000"                  # remove this block if Nginx Proxy Manager shares a Docker network (see below)
     environment:
-      ALLOW_SIGNUP: "${ALLOW_SIGNUP:-1}"      # only the default; the admin page can override it
+      PUID: "${PUID:-10001}"                  # Unraid: 99   (owner of the files in /data)
+      PGID: "${PGID:-10001}"                  # Unraid: 100
+      TZ: "${TZ:-UTC}"                        # e.g. Australia/Brisbane, used for times in the activity log
+      TRUST_PROXY: "${TRUST_PROXY:-1}"        # number of proxies in front (Nginx Proxy Manager = 1)
+      COOKIE_SECURE: "${COOKIE_SECURE:-auto}" # auto = secure cookies whenever the request came in over HTTPS
+      ALLOW_SIGNUP: "${ALLOW_SIGNUP:-1}"      # only the starting default; the Users page can override it
       MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
-      COOKIE_SECURE: "${COOKIE_SECURE:-0}"    # set to 1 when served over HTTPS
+      USER_QUOTA_MB: "${USER_QUOTA_MB:-500}"  # guide/pattern storage per user, 0 = unlimited
+      BACKUP_KEEP: "${BACKUP_KEEP:-7}"        # daily database snapshots to keep, 0 = off
       SECRET_KEY: "${SECRET_KEY:-}"           # optional; auto-generated into the volume if empty
     volumes:
-      - craft-data:/data                      # DB + uploaded guides
+      - craft-data:/data                      # database, uploads, snapshots
       # Unraid-style bind mount instead:
       # - /mnt/user/appdata/craft-stash:/data
-    mem_limit: 256m
+    mem_limit: 384m
+    # Shared network with Nginx Proxy Manager (then NPM forwards to craft-stash:8000 and no host port is needed):
+    # networks: [default, proxy]
+
+# networks:
+#   proxy:
+#     external: true
+#     name: ${PROXY_NETWORK:-proxy}           # the network your NPM container is on
 
 volumes:
   craft-data:

@@ -1,14 +1,14 @@
 {% extends "base.html" %}{% block title %}Shopping list - Craft Stash{% endblock %}
 {% block body %}
 <div class="page-head"><h1>Shopping list</h1><span class="grow"></span>{% if rows %}<div class="actions"><button class="btn secondary" id="copy"><svg class="i"><use href="#i-file"/></svg>Copy as text</button></div>{% endif %}</div>
-<p class="muted" style="margin-top:-8px">Supplies that are out of stock or at or below their low-stock level. Set the level when you edit an item.</p>
+<p class="muted" style="margin-top:-8px">Supplies that are out of stock, at or below their low-stock level, or needed by projects beyond what you have. Set the level when you edit an item.</p>
 {% for name, items in rows|groupby('pname') %}
 <section class="panel"><div class="panel-head"><h2>{{ name }}</h2></div>
-{% for s in items %}<div class="list-row" data-line="{{ s.name }}{% if s.colour %} ({{ s.colour }}){% endif %}, have {{ '%g'|format(s.qty) }} {{ s.unit }}">
+{% for s in items %}<div class="list-row" data-line="{{ s.name }}{% if s.colour %} ({{ s.colour }}){% endif %}, have {{ '%g'|format(s.qty) }} {{ s.unit }}{% if s.free < 0 %}, need {{ '%g'|format(-s.free) }} more{% endif %}">
 <span class="sw-dot{{ '' if s.hex else ' none' }}" {% if s.hex %}style="--c:{{ s.hex }}"{% endif %}></span>
 <div class="grow">{% if s.can_edit %}<a href="{{ url_for('item_edit', iid=s.id) }}"><strong>{{ s.name }}</strong></a>{% else %}<strong>{{ s.name }}</strong>{% endif %}{% if s.colour %} <span class="muted">{{ s.colour }}</span>{% endif %}
-<div class="muted small">{{ s.tname }}{% if s.price is not none %}, ${{ '%.2f'|format(s.price) }} per {{ s.unit }}{% endif %}</div></div>
-<div style="text-align:right"><strong>{{ '%g'|format(s.qty) }} {{ s.unit }}</strong><div class="small">{% if s.qty <= 0 %}<span class="pill bad">Out of stock</span>{% else %}<span class="pill warn">Low, level {{ '%g'|format(s.low_at) }}</span>{% endif %}</div></div>
+<div class="muted small">{{ s.tname }}{% if s.price is not none %}, {{ s.price|money }} per {{ s.unit }}{% endif %}</div></div>
+<div style="text-align:right"><strong>{{ '%g'|format(s.qty) }} {{ s.unit }}</strong><div class="small">{% if s.free < 0 %}<span class="pill bad">Short by {{ '%g'|format(-s.free) }} {{ s.unit }}</span>{% elif s.qty <= 0 %}<span class="pill bad">Out of stock</span>{% else %}<span class="pill warn">Low, level {{ '%g'|format(s.low_at) }}</span>{% endif %}</div></div>
 {% if s.can_edit %}<form class="inline noprint" method="post" action="{{ url_for('item_adjust', iid=s.id) }}">{{ csrf }}<input type="hidden" name="action" value="add"><input type="hidden" name="next" value="{{ request.full_path }}">
 <input name="amount" type="number" step="any" min="0" placeholder="Bought" required aria-label="Amount bought" style="width:84px;flex:none"><button class="btn secondary sm">Restock</button></form>{% endif %}</div>{% endfor %}</section>
 {% else %}<div class="panel stitch"><h3>Nothing to buy</h3><p class="muted">Everything is above its low-stock level.</p></div>{% endfor %}

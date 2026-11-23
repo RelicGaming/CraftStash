@@ -1,16 +1,24 @@
 {% extends "base.html" %}{% block title %}Users - Craft Stash{% endblock %}
 {% block body %}
 <div class="page-head"><h1>Users</h1></div>
-<section class="panel" style="padding:8px 20px"><div class="scroll"><table><tr><th>User<th>Collections<th>Projects<th>Reset password<th></tr>
-{% for u in users %}<tr><td><div class="inline" style="flex-wrap:nowrap"><span class="avatar" style="--h:{{ (u.id * 67) % 360 }}">{{ u.username[0]|upper }}</span><strong>{{ u.username }}</strong>{% if u.is_admin %}<span class="pill accent">Admin</span>{% endif %}</div>
-<td>{{ u.pools }}<td>{{ u.projects }}
+<section class="panel" style="padding:8px 20px"><div class="scroll"><table><tr><th>User<th>Collections<th>Projects<th>Storage<th>Reset password<th></tr>
+{% for u in users %}<tr><td><div class="inline" style="flex-wrap:nowrap"><span class="avatar" style="--h:{{ (u.id * 67) % 360 }}">{{ u.username[0]|upper }}</span><strong>{{ u.username }}</strong>{% if u.is_admin %}<span class="pill accent">Admin</span>{% endif %}{% if not u.active %}<span class="pill bad">Disabled</span>{% endif %}</div>
+<td>{{ u.pools }}<td>{{ u.projects }}<td class="small">{{ (u.bytes / 1048576)|round(1) }} MB{% if quota %}<span class="muted"> of {{ quota // 1048576 }}</span>{% endif %}
 <td><form class="inline" style="flex-wrap:nowrap" method="post" action="{{ url_for('admin_password', id=u.id) }}">{{ csrf }}<input name="password" type="password" placeholder="New password" minlength="8" required aria-label="New password" style="width:11rem;flex:none"><button class="btn secondary sm">Set</button></form>
 <td>{% if u.id != g.user.id %}<div class="actions" style="flex-wrap:nowrap"><form method="post" action="{{ url_for('admin_toggle', id=u.id) }}">{{ csrf }}<button class="btn ghost sm">{{ 'Remove admin' if u.is_admin else 'Make admin' }}</button></form>
-<form method="post" action="{{ url_for('admin_delete', id=u.id) }}" onsubmit="return confirm('Delete {{ u.username }} and all their collections, projects and files?')">{{ csrf }}<button class="btn ghost danger sm">Delete</button></form></div>{% endif %}</tr>{% endfor %}</table></div></section>
+<form method="post" action="{{ url_for('admin_active', id=u.id) }}">{{ csrf }}<button class="btn ghost sm">{{ 'Disable' if u.active else 'Enable' }}</button></form>
+<form method="post" action="{{ url_for('admin_delete', id=u.id) }}" onsubmit="return confirm('Delete {{ u.username }} and all their collections, projects and files? This cannot be undone.')">{{ csrf }}<button class="btn ghost danger sm">Delete</button></form></div>{% endif %}</tr>{% endfor %}</table></div></section>
 <form class="panel stitch" method="post" action="{{ url_for('admin_create') }}">{{ csrf }}<h3>Add a user</h3>
 <div class="inline" style="margin-top:12px"><input name="username" placeholder="Username" required aria-label="Username"><input name="password" type="password" placeholder="Password, 8+ characters" minlength="8" required aria-label="Password">
 <label class="inline" style="flex:none"><input type="checkbox" name="is_admin">Admin</label><button class="btn">Create user</button></div></form>
 <form class="panel" method="post" action="{{ url_for('admin_signups') }}">{{ csrf }}<div class="panel-head" style="margin:0"><div><h3>Sign-up</h3>
 <p class="muted small" style="margin:2px 0 0">{{ 'Open: anyone who can reach the site can create an account.' if signups else 'Closed: only admins can add users.' }}</p></div>
 <button class="btn secondary">{{ 'Close sign-up' if signups else 'Open sign-up' }}</button></div></form>
+<form class="panel" method="post" action="{{ url_for('admin_currency') }}">{{ csrf }}<div class="panel-head" style="margin:0"><div><h3>Currency symbol</h3><p class="muted small" style="margin:2px 0 0">Shown before every price, like $, £, € or kr.</p></div>
+<div class="inline" style="flex:none"><input name="currency" value="{{ cur }}" maxlength="4" style="width:5rem;flex:none" aria-label="Currency symbol"><button class="btn secondary">Save</button></div></div></form>
+<section class="panel"><div class="panel-head" style="margin:0"><div><h3>Self-test</h3><p class="muted small" style="margin:2px 0 0">Runs every feature in a throw-away copy of the app and times the pages. Your data is not touched.</p></div>
+<a class="btn secondary" href="{{ url_for('selftest_page') }}">Open self-test</a></div></section>
+<section class="panel"><div class="panel-head"><div><h3>Backups</h3><p class="muted small" style="margin:2px 0 0">The full backup is a zip with the database and every uploaded file. A database snapshot is also saved each day in the data volume ({{ snaps }} kept{% if last_snap %}, latest {{ last_snap }}{% endif %}).</p></div>
+<form method="post" action="{{ url_for('admin_backup') }}">{{ csrf }}<button class="btn">Download full backup</button></form></div>
+<p class="muted small" style="margin:0">To restore, stop the container, then run <code>python manage.py restore /data/backup.zip</code> inside it. The README has the exact commands.</p></section>
 {% endblock %}

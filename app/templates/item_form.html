@@ -5,7 +5,7 @@
 <div class="page-head"><h1>{{ 'Edit ' ~ i.name if i else 'Add ' ~ t.name|lower }}</h1><span class="grow"></span>
 {% if i %}<div class="actions"><a class="btn secondary sm" href="{{ url_for('item_new', tid=t.id, copy=i.id) }}">Duplicate</a></div>{% endif %}</div>
 {% if proto %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Copied from {{ proto.name }}. Change what differs, like the colour, and save.</span></div>{% endif %}
-<form class="panel" method="post">{{ csrf }}
+<form class="panel" method="post" enctype="multipart/form-data">{{ csrf }}
 <div class="form-grid">
 <label class="field wide"><span>Name</span><input name="name" value="{{ (src.name ~ ' copy') if proto else (i.name if i) }}" required maxlength="120" autofocus></label>
 <label class="field"><span>Colour name</span><input name="colour" value="{{ src.colour if src }}" maxlength="60" placeholder="Dusty rose"></label>
@@ -19,9 +19,10 @@
 {% for f in fields %}{% set v = extra.get(f.id, '') %}<label class="field"><span>{{ f.label }}</span>
 {% if f.type == 'choice' %}<select name="x_{{ f.id }}"><option value="">Not set</option>{% for o in f.options %}<option {{ 'selected' if v == o }}>{{ o }}</option>{% endfor %}{% if v and v not in f.options %}<option selected>{{ v }}</option>{% endif %}</select>
 {% else %}<input name="x_{{ f.id }}" value="{{ v }}" {{ 'type=number step=any' if f.type == 'number' }} maxlength="200">{% endif %}</label>{% endfor %}
+<div class="field wide"><span>Photo (optional)</span>{% if i and i.photo %}<div class="inline"><img src="{{ url_for('photo', iid=i.id) }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:10px;flex:none"><label class="inline" style="flex:none"><input type="checkbox" name="remove_photo">Remove photo</label></div>{% endif %}<input type="file" name="photo" accept="image/*"></div>
 <label class="field wide"><span>Notes</span><textarea name="notes" rows="3" maxlength="1000">{{ src.notes if src }}</textarea></label></div>
 {% if t.can_edit %}<p class="muted small" style="margin-top:14px">Need another field for {{ t.name|lower }}? <a href="{{ url_for('type_fields', tid=t.id) }}">Manage fields</a></p>{% endif %}
 <div class="form-actions"><button class="btn">Save item</button><a class="btn secondary" href="{{ url_for('pool', pid=t.pool_id) }}">Cancel</a></div></form>
-{% if i %}<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this item</h3><p class="muted small" style="margin:0">It will also be removed from any project using it.</p></div>
-<form method="post" action="{{ url_for('item_del', iid=i.id) }}" onsubmit="return confirm('Delete this item?')">{{ csrf }}<button class="btn danger">Delete item</button></form></div></section>{% endif %}
+{% if i %}<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this item</h3><p class="muted small" style="margin:0">{% if used_in %}It is used in {{ used_in }} {{ 'project' if used_in == 1 else 'projects' }} and will be removed from {{ 'it' if used_in == 1 else 'them' }}.{% else %}No project uses it.{% endif %} This cannot be undone.</p></div>
+<form method="post" action="{{ url_for('item_del', iid=i.id) }}" onsubmit="return confirm('Delete this item{% if used_in %} and remove it from {{ used_in }} projects{% endif %}? This cannot be undone.')">{{ csrf }}<button class="btn danger">Delete item</button></form></div></section>{% endif %}
 {% endblock %}

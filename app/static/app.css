@@ -158,3 +158,9 @@ details.adjust>summary:hover{color:var(--accent)}details.adjust form{margin-top:
 .radius-opt .rbox{height:44px;border:2px solid var(--stitch);background:var(--sunk);outline:2px solid transparent;outline-offset:2px}
 .radius-opt input:checked ~ .rbox{border-color:var(--accent)}
 .radius-opt input:focus-visible ~ .rbox{outline-color:var(--accent);outline-style:dashed}
+
+/* v5: photos, code */
+.sw-tile.photo{position:relative;background:var(--sunk)}
+.sw-tile.photo img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.sw-tile .dot{position:absolute;right:-5px;bottom:-5px;width:16px;height:16px;border-radius:50%;background:var(--c);border:2px solid var(--surface)}
+code{background:var(--sunk);padding:1px 6px;border-radius:5px;font-size:.88em}

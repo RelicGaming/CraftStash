@@ -16,6 +16,6 @@
 <div class="inline" style="margin-top:12px"><input name="label" placeholder="Label, like Width or Fibre" required maxlength="40" aria-label="Label" style="flex:1 1 170px">
 <select name="type" aria-label="Field type" style="flex:0 0 110px"><option>text</option><option>number</option><option>choice</option></select>
 <input name="options" placeholder="Options if choice: Cotton, Linen, Wool" aria-label="Options" style="flex:2 1 220px"><button class="btn">Add field</button></div></form>
-<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this material type</h3><p class="muted small" style="margin:0">Removes all its items.</p></div>
-<form method="post" action="{{ url_for('del_type', tid=t.id) }}" onsubmit="return confirm('Delete this material type and all its items?')">{{ csrf }}<button class="btn danger">Delete type</button></form></div></section>
+<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this material type</h3><p class="muted small" style="margin:0">This removes {{ impact.items }} {{ 'item' if impact.items == 1 else 'items' }}{% if impact.projects %} and takes them out of {{ impact.projects }} {{ 'project' if impact.projects == 1 else 'projects' }}{% endif %}. It cannot be undone.</p></div>
+<form method="post" action="{{ url_for('del_type', tid=t.id) }}" onsubmit="return confirm('Delete this material type and its {{ impact.items }} items? This cannot be undone.')">{{ csrf }}<button class="btn danger">Delete type</button></form></div></section>
 {% endblock %}

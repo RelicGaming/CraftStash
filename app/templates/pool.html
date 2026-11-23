@@ -3,8 +3,11 @@
 <a class="back" href="{{ url_for('home') }}"><svg class="i"><use href="#i-chev-l"/></svg>Collections</a>
 <div class="page-head"><h1>{{ pool.name }}</h1>{% if pool.craft %}<span class="pill">{{ pool.craft }}</span>{% endif %}
 {% if not pool.is_owner %}<span class="pill accent">{{ 'Can edit' if pool.can_edit else 'View only' }}, shared by {{ pool.owner }}</span>{% endif %}
-{% if value %}<span class="pill">About ${{ '%.2f'|format(value) }} of supplies</span>{% endif %}<span class="grow"></span>
-<div class="actions"><a class="btn secondary sm" href="{{ url_for('export_csv', pid=pool.id) }}">Export CSV</a></div></div>
+{% if value %}<span class="pill">About {{ value|money }} of supplies</span>{% endif %}<span class="grow"></span>
+<div class="actions"><a class="btn secondary sm" href="{{ url_for('activity', pid=pool.id) }}">Activity</a>
+{% if pool.can_edit %}<a class="btn secondary sm" href="{{ url_for('import_csv', pid=pool.id) }}">Import CSV</a>{% endif %}
+<a class="btn secondary sm" href="{{ url_for('export_csv', pid=pool.id) }}">Export CSV</a>
+{% if not pool.is_owner %}<form method="post" action="{{ url_for('leave_pool', pid=pool.id) }}" onsubmit="return confirm('Leave this collection? Your reservations from it will be removed.')">{{ csrf }}<button class="btn ghost danger sm">Leave</button></form>{% endif %}</div></div>
 <div class="strip lg">{% for h in hexes %}<i style="--c:{{ h }}"></i>{% endfor %}</div>
 <form class="inline" method="get"><div class="search"><svg class="i"><use href="#i-search"/></svg>
 <input name="q" value="{{ term }}" placeholder="Search supplies, or one field like {{ hint }}:value" aria-label="Search this collection"></div>
@@ -18,7 +21,7 @@
 {% if pool.can_edit %}<a class="btn sm" href="{{ url_for('item_new', tid=t.id) }}"><svg class="i"><use href="#i-plus"/></svg>Add item</a>
 <a class="btn secondary sm" href="{{ url_for('type_fields', tid=t.id) }}">Fields</a>{% endif %}</summary>
 {% for i in rows %}{% set x = i.extra|fromjson %}
-<div class="item"><span class="sw-tile{{ '' if i.hex else ' none' }}" {% if i.hex %}style="--c:{{ i.hex }}"{% endif %}></span>
+<div class="item"><span class="sw-tile{{ '' if i.hex else ' none' }}{{ ' photo' if i.photo }}" {% if i.hex %}style="--c:{{ i.hex }}"{% endif %}>{% if i.photo %}<img src="{{ url_for('photo', iid=i.id) }}" alt="" loading="lazy">{% if i.hex %}<span class="dot"></span>{% endif %}{% endif %}</span>
 <div>{% if pool.can_edit %}<a class="item-name" href="{{ url_for('item_edit', iid=i.id) }}">{{ i.name }}</a>{% else %}<span class="item-name">{{ i.name }}</span>{% endif %}
 <div class="item-sub">{% if i.colour %}<span>{{ i.colour }}</span>{% endif %}{% if i.subtype %}<span>{{ i.subtype }}</span>{% endif %}
 {% for f in fl if x.get(f.id) %}<span class="chip"><b>{{ f.label }}</b>{{ x.get(f.id) }}</span>{% endfor %}
@@ -28,8 +31,8 @@
 <input name="amount" type="number" step="any" min="0" placeholder="Amount in {{ t.unit }}" required aria-label="Amount" style="max-width:170px">
 <button class="btn secondary sm" name="action" value="use">Use</button><button class="btn sm" name="action" value="add">Add</button></form></details>{% endif %}</div>
 <div class="item-stock"><strong>{{ '%g'|format(i.qty) }}</strong> {{ t.unit }}
-{% if i.qty <= 0 %}<small><span class="pill bad">Out of stock</span></small>{% elif i.low_at is not none and i.qty <= i.low_at %}<small><span class="pill warn">Low stock</span></small>{% elif i.free <= 0 %}<small><span class="pill warn">All reserved</span></small>{% elif i.free < i.qty %}<small>{{ '%g'|format(i.free) }} free</small>{% endif %}</div>
-<div class="item-price">{% if i.price is not none %}${{ '%.2f'|format(i.price) }}<small>per {{ t.unit }}</small>{% endif %}</div></div>
+{% if i.free < 0 %}<small><span class="pill bad">Short by {{ '%g'|format(-i.free) }}</span></small>{% elif i.qty <= 0 %}<small><span class="pill bad">Out of stock</span></small>{% elif i.low_at is not none and i.qty <= i.low_at %}<small><span class="pill warn">Low stock</span></small>{% elif i.free <= 0 %}<small><span class="pill warn">All reserved</span></small>{% elif i.free < i.qty %}<small>{{ '%g'|format(i.free) }} free</small>{% endif %}</div>
+<div class="item-price">{% if i.price is not none %}{{ i.price|money }}<small>per {{ t.unit }}</small>{% endif %}</div></div>
 {% else %}<div class="empty">{% if term %}Nothing in {{ t.name }} matches “{{ term }}”.{% else %}No {{ t.name|lower }} yet.{% endif %}</div>{% endfor %}
 </details>
 {% else %}<div class="panel stitch"><h3>Start with a material type</h3><p class="muted">A type is a kind of supply, like Fabric or Thread. Each type gets its own unit and custom fields.</p></div>{% endfor %}
@@ -51,6 +54,6 @@
 {% else %}<p class="muted">Not shared. Editors can change stock and use it in their own projects.</p>{% endfor %}
 <form class="inline" style="margin-top:14px" method="post" action="{{ url_for('share_pool', pid=pool.id) }}">{{ csrf }}<input name="username" placeholder="Username" required aria-label="Username">
 <select name="role" aria-label="Access"><option value="view">View only</option><option value="edit">Can edit</option></select><button class="btn secondary">Share</button></form></section>
-<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this collection</h3><p class="muted small" style="margin:0">Removes all its types and items, for everyone it's shared with.</p></div>
-<form method="post" action="{{ url_for('del_pool', pid=pool.id) }}" onsubmit="return confirm('Delete this collection and everything in it?')">{{ csrf }}<button class="btn danger">Delete collection</button></form></div></section>{% endif %}
+<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this collection</h3><p class="muted small" style="margin:0">This removes {{ impact.items }} {{ 'item' if impact.items == 1 else 'items' }}{% if impact.projects %} and takes them out of {{ impact.projects }} {{ 'project' if impact.projects == 1 else 'projects' }}{% endif %}{% if impact.people %}. It also disappears for the {{ impact.people }} {{ 'person' if impact.people == 1 else 'people' }} it is shared with{% endif %}. It cannot be undone, so export a CSV first if unsure.</p></div>
+<form method="post" action="{{ url_for('del_pool', pid=pool.id) }}" onsubmit="return confirm('Delete this collection and its {{ impact.items }} items{% if impact.projects %}, removing them from {{ impact.projects }} projects{% endif %}? This cannot be undone.')">{{ csrf }}<button class="btn danger">Delete collection</button></form></div></section>{% endif %}
 {% endblock %}

@@ -1,17 +1,26 @@
-import csv, io, json, math, os, re, secrets, sqlite3, time, uuid
+import csv, hashlib, io, json, math, os, re, secrets, shutil, sqlite3, subprocess, sys, tempfile, threading, time, uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from flask import (Flask, abort, flash, g, redirect, render_template, request,
-                   send_from_directory, session, url_for, Response)
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from flask import (Flask, Response, abort, after_this_request, flash, g, redirect, render_template, request,
+                   send_file, send_from_directory, session, url_for)
+from flask.sessions import SecureCookieSessionInterface
 from markupsafe import Markup
+from PIL import Image, ImageOps, UnidentifiedImageError
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-import themes
+import backup, importer, migrations, themes
 
 DATA = Path(os.environ.get("DATA_DIR", "/data"))
-UPLOADS = DATA / "uploads"
-UPLOADS.mkdir(parents=True, exist_ok=True)
+UPLOADS = DATA / "uploads"; PHOTOS = UPLOADS / "photos"
+PHOTOS.mkdir(parents=True, exist_ok=True)
 ALLOWED = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt", "md", "doc", "docx", "odt", "xls", "xlsx", "zip"}
 INLINE = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt"}  # everything else downloads
+QUOTA = int(os.environ.get("USER_QUOTA_MB", "500") or 0) * 1024 * 1024
+Image.MAX_IMAGE_PIXELS = 40_000_000
+CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+       "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 app = Flask(__name__)
 key_file = DATA / "secret_key"
@@ -23,6 +32,18 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE") == "1")
 app.jinja_env.filters["fromjson"] = lambda s: json.loads(s or "{}")
+app.jinja_env.filters["money"] = lambda v: f"{currency()}{float(v):,.2f}"
+app.jinja_env.filters["local"] = lambda ts: local_time(ts)
+_hops = int(os.environ.get("TRUST_PROXY", "0") or 0)
+if _hops: app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_hops, x_proto=_hops, x_host=_hops)   # behind Nginx Proxy Manager
+try: TZ = ZoneInfo(os.environ.get("TZ") or "UTC")
+except ZoneInfoNotFoundError: TZ = ZoneInfo("UTC")
+
+class _Session(SecureCookieSessionInterface):
+    def get_cookie_secure(self, app):     # COOKIE_SECURE=auto: secure cookie exactly when the request arrived over HTTPS
+        mode = os.environ.get("COOKIE_SECURE", "auto")
+        return request.is_secure if mode == "auto" else mode == "1"
+app.session_interface = _Session()
 
 # ---------- db helpers ----------
 def db():
@@ -43,24 +64,8 @@ def run(sql, *a):
     c = db().execute(sql, a); db().commit(); return c
 def uid(): return g.user["id"]
 
-with sqlite3.connect(DATA / "craft.db") as _c:
-    _c.execute("PRAGMA journal_mode=WAL")
-    _c.executescript((Path(__file__).parent / "schema.sql").read_text())
-    if "theme" not in [r[1] for r in _c.execute("PRAGMA table_info(users)")]:
-        _c.execute("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''")
-    if "low_at" not in [r[1] for r in _c.execute("PRAGMA table_info(items)")]:
-        _c.execute("ALTER TABLE items ADD COLUMN low_at REAL")
-        _c.execute("DROP VIEW IF EXISTS stock")
-        _c.executescript((Path(__file__).parent / "schema.sql").read_text())
-    for _tid, _fl in _c.execute("SELECT id, fields FROM types").fetchall():
-        _fl = json.loads(_fl)
-        if _fl and isinstance(_fl[0], str):  # old format: list of names, item extras keyed by name
-            _ids = {l: f"f{n}" for n, l in enumerate(_fl)}
-            for _iid, _ex in _c.execute("SELECT id, extra FROM items WHERE type_id=?", (_tid,)).fetchall():
-                _c.execute("UPDATE items SET extra=? WHERE id=?",
-                           (json.dumps({_ids[k]: v for k, v in json.loads(_ex).items() if k in _ids}), _iid))
-            _c.execute("UPDATE types SET fields=? WHERE id=?",
-                       (json.dumps([{"id": _ids[l], "label": l, "type": "text", "options": []} for l in _fl]), _tid))
+migrations.run(DATA / "craft.db", (Path(__file__).parent / "schema.sql").read_text())
+backup.start_snapshots(DATA, int(os.environ.get("BACKUP_KEEP", "7") or 0))
 
 def num(v, default=0.0):
     try: x = float(v)
@@ -104,6 +109,54 @@ def purge_files(where, *a):
     for f in q("SELECT f.stored FROM files f JOIN projects p ON p.id=f.project_id WHERE " + where, *a):
         (UPLOADS / f["stored"]).unlink(missing_ok=True)
 
+def pwv(h): return hashlib.sha256(h.encode()).hexdigest()[:16]   # changes with the password, which signs out other sessions
+
+def currency():
+    if "cur" not in g:
+        r = db().execute("SELECT value FROM settings WHERE key='currency'").fetchone(); g.cur = r["value"] if r else "$"
+    return g.cur
+
+def local_time(ts):
+    try: return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone(TZ).strftime("%d %b %Y, %H:%M")
+    except (TypeError, ValueError): return ts or ""
+
+def log(pool_id, kind, text, item_id=None, delta=None, commit=True):
+    db().execute("INSERT INTO activity(user_id,pool_id,item_id,kind,text,delta) VALUES(?,?,?,?,?,?)",
+                 (g.user["id"] if getattr(g, "user", None) else None, pool_id, item_id, kind, text[:300], delta))
+    if commit: db().commit()
+
+def purge_photos(where, *a):
+    for r in q("""SELECT i.photo FROM items i JOIN types t ON t.id=i.type_id JOIN pools p ON p.id=t.pool_id
+                  WHERE i.photo<>'' AND """ + where, *a): (PHOTOS / r["photo"]).unlink(missing_ok=True)
+
+def drop_reservations(pool_id, user_id):   # someone lost access to a collection: their open reservations on it go too
+    run("""DELETE FROM assignments WHERE consumed=0 AND project_id IN (SELECT id FROM projects WHERE user_id=?)
+           AND item_id IN (SELECT i.id FROM items i JOIN types t ON t.id=i.type_id WHERE t.pool_id=?)""", user_id, pool_id)
+
+def used_bytes(user_id):
+    return db().execute("SELECT COALESCE(SUM(f.size),0) FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=?", (user_id,)).fetchone()[0]
+
+def save_photo(f):
+    """Re-encode an uploaded image as a small JPEG: strips metadata and anything hidden in the file."""
+    try:
+        im = Image.open(f.stream)
+        if im.format not in ("JPEG", "PNG", "WEBP", "GIF"): return None
+        im = ImageOps.exif_transpose(im); im.thumbnail((900, 900))
+        rgba = im.convert("RGBA"); flat = Image.new("RGB", rgba.size, "#ffffff"); flat.paste(rgba, mask=rgba.split()[3])
+        name = uuid.uuid4().hex + ".jpg"; flat.save(PHOTOS / name, "JPEG", quality=84, optimize=True); return name
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError): return None
+
+def pool_impact(pid):
+    d = db()
+    return {"items": d.execute("SELECT COUNT(*) FROM stock WHERE pool_id=?", (pid,)).fetchone()[0],
+            "projects": d.execute("SELECT COUNT(DISTINCT a.project_id) FROM assignments a JOIN stock s ON s.id=a.item_id WHERE s.pool_id=?", (pid,)).fetchone()[0],
+            "people": d.execute("SELECT COUNT(*) FROM pool_shares WHERE pool_id=?", (pid,)).fetchone()[0]}
+
+def type_impact(tid):
+    d = db()
+    return {"items": d.execute("SELECT COUNT(*) FROM items WHERE type_id=?", (tid,)).fetchone()[0],
+            "projects": d.execute("SELECT COUNT(DISTINCT a.project_id) FROM assignments a JOIN items i ON i.id=a.item_id WHERE i.type_id=?", (tid,)).fetchone()[0]}
+
 def signups_open():
     r = db().execute("SELECT value FROM settings WHERE key='signups'").fetchone()
     return (r["value"] if r else os.environ.get("ALLOW_SIGNUP", "1")) == "1"
@@ -120,7 +173,9 @@ def gate():
     session.setdefault("csrf", secrets.token_hex(16))
     g.user = None
     if "uid" in session:
-        g.user = db().execute("SELECT * FROM users WHERE id=?", (session["uid"],)).fetchone()
+        u = db().execute("SELECT * FROM users WHERE id=?", (session["uid"],)).fetchone()
+        if u and u["active"] and session.get("pwv") == pwv(u["pw"]): g.user = u
+        else: session.pop("uid", None)
     if request.method == "POST" and not secrets.compare_digest(
             request.form.get("_csrf", "").encode(), session["csrf"].encode()):
         abort(400)
@@ -131,9 +186,12 @@ def gate():
 def headers(r):
     r.headers["X-Content-Type-Options"] = "nosniff"
     r.headers["Referrer-Policy"] = "same-origin"
+    if r.mimetype == "text/html":       # not on files, so the browser's PDF viewer keeps working
+        r.headers["Content-Security-Policy"] = CSP; r.headers["X-Frame-Options"] = "DENY"
+        r.headers.setdefault("Cache-Control", "private, no-cache")
     return r
 
-LOW = "(s.qty<=0 OR (s.low_at IS NOT NULL AND s.qty<=s.low_at))"
+LOW = "(s.qty<=0 OR (s.low_at IS NOT NULL AND s.qty<=s.low_at) OR s.free<0)"
 
 @app.context_processor
 def ctx():
@@ -167,9 +225,13 @@ def login():
         else:
             u = db().execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
             if u and check_password_hash(u["pw"], request.form.get("password", "")):
-                FAILS.pop(key, None); session.clear(); session["uid"] = u["id"]
-                return redirect(url_for("home"))
-            FAILS.setdefault(key, []).append(time.time()); flash("Wrong username or password.")
+                if not u["active"]: flash("This account is disabled. Ask an admin.")
+                else:
+                    FAILS.pop(key, None); session.clear(); session["uid"] = u["id"]
+                    session["pwv"] = pwv(u["pw"]); session.permanent = True
+                    return redirect(url_for("home"))
+            else:
+                FAILS.setdefault(key, []).append(time.time()); flash("Wrong username or password.")
     return render_template("auth.html", mode="login", can_register=no_users() or signups_open())
 
 @app.route("/register", methods=["GET", "POST"])
@@ -179,12 +241,11 @@ def register():
     if request.method == "POST":
         name, pw = clean("username", 40), request.form.get("password", "")
         if valid_account(name, pw):
-            try:
-                c = run("INSERT INTO users(username,pw,is_admin) VALUES(?,?,?)", name, generate_password_hash(pw), int(first))
-            except sqlite3.IntegrityError:
-                flash("That username is taken.")
+            h = generate_password_hash(pw)
+            try: c = run("INSERT INTO users(username,pw,is_admin) VALUES(?,?,?)", name, h, int(first))
+            except sqlite3.IntegrityError: flash("That username is taken.")
             else:
-                session.clear(); session["uid"] = c.lastrowid
+                session.clear(); session["uid"] = c.lastrowid; session["pwv"] = pwv(h); session.permanent = True
                 return redirect(url_for("home"))
     return render_template("auth.html", mode="register", can_register=True)
 
@@ -200,8 +261,12 @@ def admin_only():
 def admin():
     admin_only()
     users = q("""SELECT u.*, (SELECT COUNT(*) FROM pools WHERE user_id=u.id) AS pools,
-                 (SELECT COUNT(*) FROM projects WHERE user_id=u.id) AS projects FROM users u ORDER BY username""")
-    return render_template("admin.html", users=users, signups=signups_open())
+                 (SELECT COUNT(*) FROM projects WHERE user_id=u.id) AS projects,
+                 (SELECT COALESCE(SUM(f.size),0) FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=u.id) AS bytes
+                 FROM users u ORDER BY username""")
+    snaps = sorted((DATA / "backups").glob("auto-*.db")) if (DATA / "backups").exists() else []
+    last = datetime.fromtimestamp(snaps[-1].stat().st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if snaps else None
+    return render_template("admin.html", users=users, signups=signups_open(), quota=QUOTA, cur=currency(), snaps=len(snaps), last_snap=local_time(last) if last else None)
 
 @app.post("/admin/users")
 def admin_create():
@@ -217,7 +282,10 @@ def admin_password(id):
     admin_only(); get("SELECT 1 FROM users WHERE id=?", id)
     pw = request.form.get("password", "")
     if len(pw) < 8: flash("Password must be 8+ characters.")
-    else: run("UPDATE users SET pw=? WHERE id=?", generate_password_hash(pw), id); flash("Password updated.")
+    else:
+        h = generate_password_hash(pw); run("UPDATE users SET pw=? WHERE id=?", h, id)
+        if id == uid(): session["pwv"] = pwv(h)
+        flash("Password updated. That user is signed out everywhere.")
     return redirect(url_for("admin"))
 
 @app.post("/admin/users/<int:id>/admin")
@@ -227,12 +295,19 @@ def admin_toggle(id):
     else: run("UPDATE users SET is_admin = 1 - is_admin WHERE id=?", id)
     return redirect(url_for("admin"))
 
+@app.post("/admin/users/<int:id>/active")
+def admin_active(id):
+    admin_only(); get("SELECT 1 FROM users WHERE id=?", id)
+    if id == uid(): flash("You can't disable yourself.")
+    else: run("UPDATE users SET active = 1 - active WHERE id=?", id)
+    return redirect(url_for("admin"))
+
 @app.post("/admin/users/<int:id>/delete")
 def admin_delete(id):
     admin_only(); get("SELECT 1 FROM users WHERE id=?", id)
     if id == uid(): flash("You can't delete yourself.")
     else:
-        purge_files("p.user_id=?", id); run("DELETE FROM users WHERE id=?", id)
+        purge_files("p.user_id=?", id); purge_photos("p.user_id=?", id); run("DELETE FROM users WHERE id=?", id)
     return redirect(url_for("admin"))
 
 @app.post("/admin/signups")
@@ -241,6 +316,70 @@ def admin_signups():
     run("INSERT INTO settings(key,value) VALUES('signups',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         "0" if signups_open() else "1")
     return redirect(url_for("admin"))
+
+@app.post("/admin/currency")
+def admin_currency():
+    admin_only(); sym = "".join(ch for ch in clean("currency", 4) if ch.isprintable()) or "$"
+    run("INSERT INTO settings(key,value) VALUES('currency',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", sym)
+    return redirect(url_for("admin"))
+
+@app.post("/admin/backup")
+def admin_backup():
+    admin_only()
+    fd, tmp = tempfile.mkstemp(suffix=".zip"); os.close(fd)
+    backup.make_zip(DATA, tmp)
+    @after_this_request
+    def _remove(resp):
+        try: os.unlink(tmp)
+        except OSError: pass
+        return resp
+    return send_file(tmp, as_attachment=True, download_name=f"craft-stash-backup-{backup.stamp()}.zip", mimetype="application/zip")
+
+# ---------- self-test (runs selftest.py against a throw-away copy of the app; never touches real data) ----------
+SELFTEST = {"state": "idle", "events": []}
+SELFTEST_LOCK = threading.Lock()
+SELFTEST_DIR = DATA / "selftest"
+
+def _selftest_worker():
+    SELFTEST_DIR.mkdir(exist_ok=True)
+    try:
+        p = subprocess.Popen([sys.executable, "selftest.py", "--json-lines", "--out", str(SELFTEST_DIR)], cwd=Path(__file__).parent,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for line in p.stdout:
+            try: ev = json.loads(line)
+            except ValueError: ev = {"event": "log", "text": line.strip()[:300]}
+            with SELFTEST_LOCK: SELFTEST["events"].append(ev)
+        p.wait(); final = "done" if p.returncode in (0, 1) else "error"      # 1 just means some checks failed
+    except Exception as e:
+        with SELFTEST_LOCK: SELFTEST["events"].append({"event": "log", "text": f"Could not run the self-test: {e}"})
+        final = "error"
+    with SELFTEST_LOCK: SELFTEST["state"] = final
+
+@app.get("/admin/selftest")
+def selftest_page():
+    admin_only()
+    return render_template("selftest.html", has_report=(SELFTEST_DIR / "report.html").exists())
+
+@app.post("/admin/selftest/run")
+def selftest_run():
+    admin_only()
+    with SELFTEST_LOCK:
+        if SELFTEST["state"] == "running": flash("A self-test is already running.")
+        else:
+            SELFTEST.update(state="running", events=[]); threading.Thread(target=_selftest_worker, daemon=True, name="selftest").start()
+    return redirect(url_for("selftest_page"))
+
+@app.get("/admin/selftest/status")
+def selftest_status():
+    admin_only(); since = request.args.get("since", 0, type=int)
+    with SELFTEST_LOCK: return {"state": SELFTEST["state"], "events": SELFTEST["events"][since:]}
+
+@app.get("/admin/selftest/report")
+def selftest_report():
+    admin_only(); fmt = request.args.get("format", "html")
+    path = SELFTEST_DIR / ("report.json" if fmt == "json" else "report.html")
+    if not path.exists(): abort(404)
+    return send_file(path, mimetype="application/json" if fmt == "json" else "text/html", as_attachment=(fmt == "json"), download_name="craft-stash-selftest.json")
 
 # ---------- pools ----------
 @app.get("/")
@@ -260,7 +399,7 @@ def new_pool():
 
 @app.post("/collections/<int:pid>/delete")
 def del_pool(pid):
-    pool_of(pid, owner=True); run("DELETE FROM pools WHERE id=?", pid)
+    pool_of(pid, owner=True); purge_photos("p.id=?", pid); run("DELETE FROM pools WHERE id=?", pid)
     return redirect(url_for("home"))
 
 SORTS = {"name": "name COLLATE NOCASE", "colour": "colour COLLATE NOCASE, name COLLATE NOCASE",
@@ -289,7 +428,7 @@ def pool(pid):
         groups.append((t, fl, q(sql + " ORDER BY " + SORTS[sort], *args)))
     shares = q("""SELECT u.id, u.username, s.can_edit FROM pool_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.pool_id=? ORDER BY u.username""", pid) if p["is_owner"] else []
-    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0], sort=sort,
+    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0], sort=sort, impact=pool_impact(pid) if p["is_owner"] else None,
                            value=db().execute("SELECT COALESCE(SUM(qty*price),0) FROM stock WHERE pool_id=? AND price IS NOT NULL", (pid,)).fetchone()[0],
                            hexes=[r["hex"] for r in q("SELECT DISTINCT hex FROM stock WHERE pool_id=? AND hex<>'' LIMIT 40", pid)])
 
@@ -305,7 +444,7 @@ def share_pool(pid):
 
 @app.post("/collections/<int:pid>/unshare/<int:user>")
 def unshare_pool(pid, user):
-    pool_of(pid, owner=True); run("DELETE FROM pool_shares WHERE pool_id=? AND user_id=?", pid, user)
+    pool_of(pid, owner=True); run("DELETE FROM pool_shares WHERE pool_id=? AND user_id=?", pid, user); drop_reservations(pid, user)
     return redirect(url_for("pool", pid=pid))
 
 @app.post("/collections/<int:pid>/update")
@@ -321,16 +460,65 @@ def export_csv(pid):
     labels = list(dict.fromkeys(f["label"] for t in types for f in json.loads(t["fields"])))
     safe = lambda v: ("'" + v) if isinstance(v, str) and v and v[0] in "=+-@\t\r" else v   # blocks spreadsheet formula injection
     out = io.StringIO(); w = csv.writer(out)
-    w.writerow(["Material type", "Name", "Colour", "Variant", "In stock", "Unit", "Price per unit", "Low stock at", "Location", "Notes"] + labels)
+    w.writerow(["Material type", "Name", "Colour", "Variant", "In stock", "Unit", "Price per unit", "Low stock at", "Location", "Notes", "Swatch (hex)"] + labels)
     for t in types:
         ids = {f["label"]: f["id"] for f in json.loads(t["fields"])}
         for i in q("SELECT * FROM stock WHERE type_id=? ORDER BY name", t["id"]):
             x = json.loads(i["extra"])
-            w.writerow([safe(v) for v in [t["name"], i["name"], i["colour"], i["subtype"], i["qty"], t["unit"], i["price"], i["low_at"], i["location"], i["notes"]]
+            w.writerow([safe(v) for v in [t["name"], i["name"], i["colour"], i["subtype"], i["qty"], t["unit"], i["price"], i["low_at"], i["location"], i["notes"], i["hex"]]
                         + [x.get(ids[l], "") if l in ids else "" for l in labels]])
     name = re.sub(r"[^\w.-]+", "_", p["name"]) or "collection"
     return Response("\ufeff" + out.getvalue(), mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
+
+@app.post("/collections/<int:pid>/leave")
+def leave_pool(pid):
+    p = pool_of(pid)
+    if not p["is_owner"]:
+        run("DELETE FROM pool_shares WHERE pool_id=? AND user_id=?", pid, uid()); drop_reservations(pid, uid())
+    return redirect(url_for("home"))
+
+@app.get("/collections/<int:pid>/activity")
+def activity(pid):
+    p = pool_of(pid)
+    rows = q("""SELECT a.*, u.username, (SELECT 1 FROM items i WHERE i.id=a.item_id) AS item_exists
+                FROM activity a LEFT JOIN users u ON u.id=a.user_id WHERE a.pool_id=? ORDER BY a.id DESC LIMIT 200""", pid)
+    return render_template("activity.html", pool=p, rows=rows)
+
+@app.post("/activity/<int:aid>/undo")
+def undo(aid):
+    a = get("SELECT * FROM activity WHERE id=?", aid); pool_of(a["pool_id"], write=True)
+    it = db().execute("SELECT * FROM items WHERE id=?", (a["item_id"],)).fetchone() if a["item_id"] else None
+    if a["kind"] == "adjust" and not a["undone"] and it:
+        run("UPDATE items SET qty=MAX(0, qty-?) WHERE id=?", a["delta"], it["id"]); run("UPDATE activity SET undone=1 WHERE id=?", aid)
+        log(a["pool_id"], "undo", "Undid: " + a["text"], it["id"])
+    return redirect(url_for("activity", pid=a["pool_id"]))
+
+@app.get("/collections/import-template.csv")
+def import_template():
+    return Response("\ufeff" + importer.TEMPLATE, mimetype="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="craft-stash-import-template.csv"'})
+
+@app.route("/collections/<int:pid>/import", methods=["GET", "POST"])
+def import_csv(pid):
+    p = pool_of(pid, write=True); result = None
+    if request.method == "POST":
+        f = request.files.get("file"); raw = f.read(2_000_001) if f else b""
+        if not raw: flash("Choose a CSV file first.")
+        elif len(raw) > 2_000_000: flash("That file is over 2 MB.")
+        else:
+            try: text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError: text = raw.decode("cp1252", errors="replace")
+            dry, d = bool(request.form.get("dry")), db()
+            try:
+                result = importer.run_import(d, pid, text, request.form.get("mode") != "add", clean("default_type", 60) or "Imported")
+                result["dry"] = dry
+                if dry: d.rollback()
+                else:
+                    log(pid, "import", f"Imported from CSV: {result['added']} added, {result['updated']} updated", commit=False); d.commit()
+            except ValueError as e:
+                d.rollback(); flash(str(e))
+    return render_template("import.html", pool=p, types=q("SELECT name FROM types WHERE pool_id=? ORDER BY name", pid), result=result)
 
 # ---------- material types & custom fields ----------
 def new_field(label, typ="text", options=()):
@@ -358,13 +546,13 @@ def new_type(pid):
 
 @app.post("/types/<int:tid>/delete")
 def del_type(tid):
-    t = type_of(tid, True); run("DELETE FROM types WHERE id=?", tid)
+    t = type_of(tid, True); purge_photos("t.id=?", tid); run("DELETE FROM types WHERE id=?", tid)
     return redirect(url_for("pool", pid=t["pool_id"]))
 
 @app.get("/types/<int:tid>/fields")
 def type_fields(tid):
     t = type_of(tid, True)
-    return render_template("type_fields.html", t=t, fields=json.loads(t["fields"]))
+    return render_template("type_fields.html", t=t, fields=json.loads(t["fields"]), impact=type_impact(tid))
 
 @app.post("/types/<int:tid>/update")
 def update_type(tid):
@@ -412,10 +600,24 @@ def save_item(t, item_id=None):
     price, low = request.form.get("price", "").strip(), request.form.get("low", "").strip()
     vals = (clean("name") or "Unnamed", clean("colour", 60), hexv, clean("subtype", 60), num(request.form.get("qty")),
             num(price) if price else None, num(low) if low else None, clean("location", 80), clean("notes", 1000), json.dumps(extra))
+    old = db().execute("SELECT qty, photo FROM items WHERE id=?", (item_id,)).fetchone() if item_id else None
     if item_id:
         run("UPDATE items SET name=?,colour=?,hex=?,subtype=?,qty=?,price=?,low_at=?,location=?,notes=?,extra=? WHERE id=?", *vals, item_id)
     else:
-        run("INSERT INTO items(name,colour,hex,subtype,qty,price,low_at,location,notes,extra,type_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", *vals, t["id"])
+        item_id = run("INSERT INTO items(name,colour,hex,subtype,qty,price,low_at,location,notes,extra,type_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", *vals, t["id"]).lastrowid
+    up = request.files.get("photo")
+    if up and up.filename:
+        name = save_photo(up)
+        if name:
+            if old and old["photo"]: (PHOTOS / old["photo"]).unlink(missing_ok=True)
+            run("UPDATE items SET photo=? WHERE id=?", name, item_id)
+        else: flash("That photo couldn't be read. Use a JPEG, PNG, WebP or GIF image.")
+    elif request.form.get("remove_photo") and old and old["photo"]:
+        (PHOTOS / old["photo"]).unlink(missing_ok=True); run("UPDATE items SET photo='' WHERE id=?", item_id)
+    if old is None: log(t["pool_id"], "add", f"Added {vals[0]} ({t['name']})", item_id)
+    else:
+        moved = f", stock {old['qty']:g} to {vals[4]:g}" if abs(old["qty"] - vals[4]) > 1e-9 else ""
+        log(t["pool_id"], "edit", f"Edited {vals[0]}{moved}", item_id)
     return redirect(url_for("pool", pid=t["pool_id"]))
 
 @app.route("/types/<int:tid>/items/new", methods=["GET", "POST"])
@@ -432,11 +634,12 @@ def item_new(tid):
 def item_edit(iid):
     i = item_of(iid, True); t = type_of(i["type_id"], True)
     if request.method == "POST": return save_item(t, iid)
-    return render_template("item_form.html", t=t, fields=json.loads(t["fields"]), i=i, proto=None, extra=json.loads(i["extra"]))
+    return render_template("item_form.html", t=t, fields=json.loads(t["fields"]), i=i, proto=None, extra=json.loads(i["extra"]),
+                           used_in=db().execute("SELECT COUNT(*) FROM assignments WHERE item_id=?", (iid,)).fetchone()[0])
 
 @app.post("/items/<int:iid>/delete")
 def item_del(iid):
-    i = item_of(iid, True); run("DELETE FROM items WHERE id=?", iid)
+    i = item_of(iid, True); purge_photos("i.id=?", iid); run("DELETE FROM items WHERE id=?", iid); log(i["pool_id"], "delete", f"Deleted {i['name']}")
     return redirect(url_for("pool", pid=i["pool_id"]))
 
 def safe_next(default):
@@ -447,8 +650,17 @@ def safe_next(default):
 def item_adjust(iid):
     i = item_of(iid, True); n = num(request.form.get("amount"))
     if n > 0:
-        run("UPDATE items SET qty=MAX(0, qty+?) WHERE id=?", n if request.form.get("action") == "add" else -n, iid)
+        add = request.form.get("action") == "add"; new = max(0.0, i["qty"] + (n if add else -n))
+        run("UPDATE items SET qty=? WHERE id=?", new, iid)
+        log(i["pool_id"], "adjust", f"{'Added' if add else 'Used'} {n:g} {i['unit']} of {i['name']} ({i['qty']:g} to {new:g})", iid, new - i["qty"])
     return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
+
+@app.get("/photos/<int:iid>")
+def photo(iid):
+    i = item_of(iid)
+    if not i["photo"]: abort(404)
+    r = send_from_directory(PHOTOS, i["photo"], mimetype="image/jpeg"); r.headers["Cache-Control"] = "private, max-age=3600"
+    return r
 
 @app.get("/shopping")
 def shopping():
@@ -472,7 +684,9 @@ def account():
         if not check_password_hash(g.user["pw"], cur): flash("Your current password is wrong.")
         elif len(new) < 8: flash("The new password needs 8 or more characters.")
         elif new != request.form.get("confirm", ""): flash("The new passwords don't match.")
-        else: run("UPDATE users SET pw=? WHERE id=?", generate_password_hash(new), uid()); flash("Password updated.")
+        else:
+            h = generate_password_hash(new); run("UPDATE users SET pw=? WHERE id=?", h, uid()); session["pwv"] = pwv(h)
+            flash("Password updated. Other devices have been signed out.")
         return redirect(url_for("account"))
     return render_template("account.html")
 
@@ -498,11 +712,11 @@ def new_project():
 @app.get("/projects/<int:id>")
 def project(id):
     pr = project_of(id); mine = pr["user_id"] == uid()
-    assigned = q("""SELECT a.id, a.qty, a.consumed, s.name, s.colour, s.hex, s.subtype, s.tname, s.unit, s.pname, s.price
+    assigned = q("""SELECT a.id, a.qty, a.consumed, s.name, s.colour, s.hex, s.subtype, s.tname, s.unit, s.pname, s.price, s.free
                     FROM assignments a JOIN stock s ON s.id=a.item_id
                     WHERE a.project_id=? ORDER BY s.pname, s.tname, s.name""", id)
     avail = q("""SELECT s.* FROM stock s JOIN access a ON a.pool_id=s.pool_id
-                 WHERE a.user_id=? AND a.can_edit=1 AND s.free>0 ORDER BY s.pname, s.tname, s.name""", uid()) if mine else []
+                 WHERE a.user_id=? AND a.can_edit=1 ORDER BY s.pname, s.tname, s.name""", uid()) if mine else []
     shares = q("""SELECT u.id, u.username FROM project_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.project_id=? ORDER BY u.username""", id) if mine else []
     return render_template("project.html", p=pr, mine=mine, assigned=assigned, avail=avail, shares=shares,
@@ -526,11 +740,12 @@ def assign(id):
     it = item_of(request.form.get("item_id", type=int), True)
     n = num(request.form.get("qty"))
     if pr["status"] == "done": abort(400)
-    if n <= 0 or n > it["free"] + 1e-9:
-        flash(f"Only {it['free']:g} {it['unit']} of {it['name']} is free.")
+    if n <= 0: flash("Enter an amount above zero.")
     else:
+        short = n - max(it["free"], 0)       # more than is free is allowed: the gap lands on the shopping list
         run("""INSERT INTO assignments(project_id,item_id,qty) VALUES(?,?,?)
                ON CONFLICT(project_id,item_id) DO UPDATE SET qty=qty+excluded.qty""", id, it["id"], n)
+        if short > 1e-9: flash(f"That's {short:g} {it['unit']} more than you have free. It's on your shopping list.")
     return redirect(url_for("project", id=id))
 
 @app.post("/assignments/<int:aid>/delete")
@@ -541,14 +756,57 @@ def unassign(aid):
 
 @app.post("/projects/<int:id>/complete")
 def complete(id):
-    project_of(id, True); d = db()
-    d.execute("""UPDATE items SET qty=MAX(0, qty-(SELECT SUM(qty) FROM assignments
-                 WHERE item_id=items.id AND project_id=? AND consumed=0))
-                 WHERE id IN (SELECT item_id FROM assignments WHERE project_id=? AND consumed=0)""", (id, id))
-    d.execute("UPDATE assignments SET consumed=1 WHERE project_id=?", (id,))
-    d.execute("UPDATE projects SET status='done' WHERE id=?", (id,))
-    d.commit()
+    pr = project_of(id, True)
+    if pr["status"] != "done":
+        d = db()
+        for a in q("""SELECT a.id, a.item_id, a.qty, s.qty AS have, s.name, s.unit, s.pool_id FROM assignments a
+                      JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=0""", id):
+            used = min(a["qty"], a["have"])
+            d.execute("UPDATE items SET qty=qty-? WHERE id=?", (used, a["item_id"]))
+            d.execute("UPDATE assignments SET consumed=1, used=? WHERE id=?", (used, a["id"]))
+            if used: log(a["pool_id"], "project", f"{pr['name']}: used {used:g} {a['unit']} of {a['name']}", a["item_id"], -used, commit=False)
+        d.execute("UPDATE projects SET status='done' WHERE id=?", (id,)); d.commit()
     return redirect(url_for("project", id=id))
+
+@app.post("/projects/<int:id>/reopen")
+def reopen(id):
+    pr = project_of(id, True)
+    if pr["status"] == "done":
+        d = db()
+        for a in q("""SELECT a.id, a.item_id, a.used, s.name, s.unit, s.pool_id FROM assignments a
+                      JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=1""", id):
+            d.execute("UPDATE items SET qty=qty+? WHERE id=?", (a["used"], a["item_id"]))
+            d.execute("UPDATE assignments SET consumed=0, used=0 WHERE id=?", (a["id"],))
+            if a["used"]: log(a["pool_id"], "project", f"{pr['name']} reopened: returned {a['used']:g} {a['unit']} of {a['name']}", a["item_id"], a["used"], commit=False)
+        d.execute("UPDATE projects SET status='active' WHERE id=?", (id,)); d.commit()
+    return redirect(url_for("project", id=id))
+
+@app.post("/projects/<int:id>/copy")
+def copy_project(id):
+    pr = project_of(id); mine = pr["user_id"] == uid(); d = db(); notes = pr["notes"]
+    mats = q("SELECT a.qty, s.name, s.colour, s.unit FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=? ORDER BY s.name", id)
+    if not mine and mats:    # the new owner can't use someone else's stock, so the materials become a written list
+        lines = [f"- {a['qty']:g} {a['unit']} {a['name']}" + (f" ({a['colour']})" if a["colour"] else "") for a in mats]
+        notes = (notes + "\n\n" if notes else "") + "Materials from the original:\n" + "\n".join(lines)
+    nid = d.execute("INSERT INTO projects(user_id,name,notes) VALUES(?,?,?)",
+                    (uid(), (pr["name"] + " (copy)" if mine else pr["name"])[:100], notes[:5000])).lastrowid
+    d.execute("INSERT INTO steps(project_id,pos,title,body) SELECT ?,pos,title,body FROM steps WHERE project_id=?", (nid, id))
+    if mine: d.execute("INSERT INTO assignments(project_id,item_id,qty) SELECT ?,item_id,qty FROM assignments WHERE project_id=?", (nid, id))
+    skipped = False
+    for f in q("SELECT * FROM files WHERE project_id=?", id):
+        if QUOTA and used_bytes(uid()) + f["size"] > QUOTA: skipped = True; continue
+        stored = uuid.uuid4().hex + "." + f["stored"].rsplit(".", 1)[-1]
+        shutil.copyfile(UPLOADS / f["stored"], UPLOADS / stored)
+        d.execute("INSERT INTO files(project_id,name,stored,size) VALUES(?,?,?,?)", (nid, f["name"], stored, f["size"])); d.commit()
+    d.commit()
+    if skipped: flash("Some files weren't copied because you're over your storage limit.")
+    return redirect(url_for("project", id=nid))
+
+@app.post("/projects/<int:id>/leave")
+def leave_project(id):
+    pr = project_of(id)
+    if pr["user_id"] != uid(): run("DELETE FROM project_shares WHERE project_id=? AND user_id=?", id, uid())
+    return redirect(url_for("projects"))
 
 @app.post("/projects/<int:id>/delete")
 def del_project(id):
@@ -610,7 +868,10 @@ def upload(id):
     else:
         stored = f"{uuid.uuid4().hex}.{ext}"
         f.save(UPLOADS / stored)
-        run("INSERT INTO files(project_id,name,stored,size) VALUES(?,?,?,?)", id, name, stored, (UPLOADS / stored).stat().st_size)
+        size = (UPLOADS / stored).stat().st_size
+        if QUOTA and used_bytes(uid()) + size > QUOTA:
+            (UPLOADS / stored).unlink(); flash(f"That would go over your {QUOTA // 1048576} MB storage limit.")
+        else: run("INSERT INTO files(project_id,name,stored,size) VALUES(?,?,?,?)", id, name, stored, size)
     return redirect(url_for("project", id=id))
 
 @app.get("/files/<int:fid>")

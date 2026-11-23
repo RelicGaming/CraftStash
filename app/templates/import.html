@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% block title %}Import CSV - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('pool', pid=pool.id) }}"><svg class="i"><use href="#i-chev-l"/></svg>{{ pool.name }}</a>
+<div class="page-head"><h1>Import from CSV</h1></div>
+{% if result %}<section class="panel"><div class="panel-head"><h2>{{ 'Check result (nothing was imported)' if result.dry else 'Import finished' }}</h2></div>
+<div class="tile-meta" style="margin:0 0 10px"><span class="pill ok">{{ result.added }} added</span><span class="pill accent">{{ result.updated }} updated</span><span class="pill {{ 'bad' if result.skipped else '' }}">{{ result.skipped }} skipped</span>
+{% if result.new_types %}<span class="pill">{{ result.new_types }} new {{ 'type' if result.new_types == 1 else 'types' }}</span>{% endif %}{% if result.new_fields %}<span class="pill">{{ result.new_fields }} new {{ 'field' if result.new_fields == 1 else 'fields' }}</span>{% endif %}</div>
+{% for e in result.errors %}<p class="small" style="margin:2px 0">{{ e }}</p>{% endfor %}
+{% if result.dry %}<p class="muted small">Untick "Check only" below and import again to apply it.</p>{% endif %}</section>{% endif %}
+<form class="panel" method="post" enctype="multipart/form-data">{{ csrf }}
+<p style="margin-top:0">Use a CSV with a header row. The columns are Material type, Name, Colour, Variant, In stock, Unit, Price per unit, Low stock at, Location, Notes and Swatch (hex). Any other column becomes a custom field. Only Name is required. <a href="{{ url_for('import_template') }}">Download a template</a>, or export this collection to see the format.</p>
+<div class="form-grid">
+<label class="field wide"><span>CSV file</span><input type="file" name="file" accept=".csv,text/csv" required></label>
+<label class="field"><span>If a row already exists (same type, name and colour)</span><select name="mode"><option value="update">Update it</option><option value="add">Add it again as a new item</option></select></label>
+<label class="field"><span>Material type for rows without one</span><input name="default_type" list="types" placeholder="Imported" maxlength="60"></label></div>
+<datalist id="types">{% for t in types %}<option value="{{ t.name }}">{% endfor %}</datalist>
+<label class="inline" style="margin-top:14px"><input type="checkbox" name="dry" checked>Check only, don't import yet</label>
+<div class="form-actions"><button class="btn">Run</button><a class="btn secondary" href="{{ url_for('pool', pid=pool.id) }}">Cancel</a></div></form>
+{% endblock %}
