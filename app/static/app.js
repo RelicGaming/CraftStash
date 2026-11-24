@@ -135,4 +135,67 @@
     };
     poll();
   }
+  // Photo-first adding: preview the chosen photo and suggest swatch colours from it, worked out in the browser
+  // so the photo is only uploaded once, when the item is saved.
+  const nameOf = hex => {
+    const [h, s, l] = toHsl(hex);
+    if (l < 12) return 'Black'; if (l > 92) return 'White';
+    const tone = l < 32 ? 'Dark ' : l > 72 ? 'Light ' : '';
+    if (s < 14) return l < 32 ? 'Charcoal' : l > 72 ? 'Light grey' : 'Grey';
+    if (h >= 15 && h < 45 && l < 45) return tone + 'brown';
+    const hue = [[15, 'red'], [40, 'orange'], [65, 'yellow'], [160, 'green'], [195, 'teal'], [255, 'blue'], [290, 'purple'], [335, 'pink'], [361, 'red']].find(([m]) => h < m)[1];
+    const n = tone + hue; return n[0].toUpperCase() + n.slice(1);
+  };
+  const coloursIn = img => {
+    // centre crop (the subject is usually in the middle), small canvas, then colour buckets weighted towards the centre
+    const N = 72, cv = document.createElement('canvas'); cv.width = cv.height = N;
+    const side = Math.min(img.naturalWidth, img.naturalHeight) * 0.7;
+    const ctx = cv.getContext('2d', {willReadFrequently: true});
+    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, N, N);
+    const px = ctx.getImageData(0, 0, N, N).data, buckets = new Map();
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const o = (y * N + x) * 4; if (px[o + 3] < 128) continue;
+      const r = px[o], g = px[o + 1], b = px[o + 2], k = (r >> 5) << 6 | (g >> 5) << 3 | (b >> 5);
+      const w = 2 - Math.hypot(x - N / 2, y - N / 2) / (N / 2);   // 2 in the middle, about 0.6 in the corners
+      const e = buckets.get(k) || {w: 0, r: 0, g: 0, b: 0}; e.w += w; e.r += r * w; e.g += g * w; e.b += b * w; buckets.set(k, e);
+    }
+    const hex2 = v => Math.round(v).toString(16).padStart(2, '0'), picked = [];
+    for (const e of [...buckets.values()].sort((a, b) => b.w - a.w)) {
+      const c = [e.r / e.w, e.g / e.w, e.b / e.w];
+      if (picked.every(p => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) > 56)) picked.push(c);
+      if (picked.length === 4) break;
+    }
+    return picked.map(c => '#' + c.map(hex2).join(''));
+  };
+  document.querySelectorAll('[data-photo-first]').forEach(box => {
+    const form = box.closest('form'), file = box.querySelector('input[type=file]'), preview = box.querySelector('.photo-preview');
+    const row = box.querySelector('.photo-colours'), list = box.querySelector('.photo-colour-list');
+    const picker = form.querySelector('input[type=color][name=hex]'), colourName = form.elements.colour, tick = form.elements.has_hex;
+    if (!picker) return;
+    const use = (hex, btn) => {
+      picker.value = hex; picker.dispatchEvent(new Event('change')); picker.dispatchEvent(new Event('input', {bubbles: true}));
+      if (colourName && (!colourName.value.trim() || colourName.dataset.auto === colourName.value)) colourName.value = colourName.dataset.auto = nameOf(hex);
+      list.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+    };
+    const suggest = (img, auto) => {
+      let found; try { found = coloursIn(img); } catch (e) { return; }
+      list.replaceChildren(...found.map(hex => {
+        const b = Object.assign(document.createElement('button'), {type: 'button', className: 'photo-colour'});
+        b.style.setProperty('--c', hex); b.setAttribute('aria-pressed', 'false');
+        b.setAttribute('aria-label', `Use ${nameOf(hex).toLowerCase()} (${hex})`); b.title = hex;
+        b.addEventListener('click', () => use(hex, b)); return b;
+      }));
+      row.hidden = !found.length;
+      if (found.length && auto) use(found[0], list.firstChild);
+    };
+    const load = (src, auto) => { const img = new Image(); img.onload = () => suggest(img, auto); img.src = src; };
+    file.addEventListener('change', () => {
+      const f = file.files[0]; if (!f || !f.type.startsWith('image/')) return;
+      if (preview.dataset.blob) URL.revokeObjectURL(preview.dataset.blob);
+      preview.src = preview.dataset.blob = URL.createObjectURL(f); preview.hidden = false;
+      load(preview.src, !tick || !tick.checked || tick.dataset.auto === 'yes');   // never overwrite a swatch the user set
+      if (tick && !tick.checked) tick.dataset.auto = 'yes';
+    });
+    box.querySelector('[data-colour-from-photo]')?.addEventListener('click', () => load(preview.src, false));
+  });
 })();
