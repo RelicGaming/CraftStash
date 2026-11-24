@@ -28,6 +28,20 @@ def pytest_collection_modifyitems(config, items):
         if "sqlite_only" in it.keywords: it.add_marker(skip)
 
 def reset_test_db():
+    if TEST_DB.split(":", 1)[0].lower() in ("mysql", "mariadb"):
+        import pymysql, dbx
+        a = dbx.mysql_args(TEST_DB); name = a.pop("database"); a["autocommit"] = True
+        c = pymysql.connect(**a)
+        try:
+            cur = c.cursor(); me = c.thread_id()
+            cur.execute("SELECT id FROM information_schema.processlist WHERE db=%s AND id<>%s", (name, me))
+            for (pid,) in cur.fetchall():
+                try: cur.execute(f"KILL {int(pid)}")
+                except pymysql.err.MySQLError: pass
+            cur.execute(f"DROP DATABASE IF EXISTS `{name}`")
+            cur.execute(f"CREATE DATABASE `{name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin")
+        finally: c.close()
+        return
     import psycopg
     with psycopg.connect(TEST_DB, autocommit=True) as c:
         # Connections a test left open (and the previous app's) would block the drop: end them first.
@@ -53,7 +67,8 @@ def make_env(tmp_path, monkeypatch):
         def db():       # the app's database, rows as plain tuples (as tests compare them)
             c = dbx.connect(dbx.CFG)
             if hasattr(c, "row_factory"): c.row_factory = None
-            else: c.raw.autocommit = True                   # a test's reads must not hold locks the app then waits on
+            elif c.engine == "mysql": c.raw.autocommit(True)  # a test's reads must not hold locks the app then waits on
+            else: c.raw.autocommit = True
             return c
         return types.SimpleNamespace(mod=mod, data=tmp_path, client=lambda: C(mod.app), db=db)
     return make

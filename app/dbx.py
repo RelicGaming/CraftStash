@@ -1,4 +1,4 @@
-"""The database layer: SQLite by default, or an external PostgreSQL server.
+"""The database layer: SQLite by default, or an external PostgreSQL or MariaDB/MySQL server.
 
 The app writes SQLite-flavoured SQL with `?` placeholders. On SQLite it runs as is (a plain sqlite3 connection). On
 other engines a thin wrapper gives the same interface (execute/executemany/commit/rollback/close, rows by name and
@@ -7,14 +7,16 @@ by position, cursor.lastrowid) and translates the few things that differ:
     ?                   -> %s (bound client-side by the driver, safely quoted)
     INSERT OR IGNORE    -> INSERT ... ON CONFLICT DO NOTHING
     INSERT INTO <t>     -> ... RETURNING id, so cursor.lastrowid works
-    COLLATE NOCASE      -> the "nocase" collation the schema creates (case-insensitive, like SQLite's)
+    COLLATE NOCASE      -> Postgres: the "nocase" collation the schema creates; MySQL: utf8mb4_unicode_ci
+    ON CONFLICT ... DO UPDATE SET c=excluded.c   -> MySQL: ON DUPLICATE KEY UPDATE c=VALUES(c)
+    key, stored         -> MySQL: `key`, `stored` (reserved words there)
 
 Anything else that differs goes through the small helpers at the bottom (like_op, json_get, json_has, json_drop,
 upsert, insert_ignore, greatest, ci, now), which return the right SQL for the engine in use.
 
 Choosing the engine (first match wins):
-    DATABASE_URL       postgresql://user:pass@host:5432/craftstash
-    DB_TYPE=postgres   with DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (or DB_PASSWORD_FILE), DB_SSLMODE
+    DATABASE_URL       postgresql://user:pass@host:5432/craftstash  or  mysql://user:pass@host:3306/craftstash
+    DB_TYPE=postgres   (or mysql / mariadb) with DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (or DB_PASSWORD_FILE), DB_SSLMODE
     (nothing)          SQLite at DATA_DIR/craft.db
 """
 import os, re, sqlite3, time
@@ -100,12 +102,22 @@ try:
     import psycopg
     IntegrityError += (psycopg.IntegrityError,); DatabaseError += (psycopg.DatabaseError,); OperationalError += (psycopg.OperationalError,)
 except ImportError: psycopg = None
+try:
+    import pymysql
+    IntegrityError += (pymysql.err.IntegrityError,); DatabaseError += (pymysql.err.DatabaseError,); OperationalError += (pymysql.err.OperationalError,)
+except ImportError: pymysql = None
 
 # ---------------------------------------------------------------- rows and cursors
+from decimal import Decimal
+def _plain(v):
+    """MySQL returns SUM()/COUNT() over integers as Decimal; SQLite and Postgres give int or float."""
+    if isinstance(v, Decimal): return int(v) if v == v.to_integral_value() else float(v)
+    return v
+
 class Row:
     """Like sqlite3.Row: by name or by position, keys(), dict(row), tuple(row)."""
     __slots__ = ("_v", "_k")
-    def __init__(self, values, keys): self._v, self._k = tuple(values), keys
+    def __init__(self, values, keys): self._v, self._k = tuple(_plain(v) for v in values), keys
     def __getitem__(self, i): return self._v[self._k[i]] if isinstance(i, str) else self._v[i]
     def __len__(self): return len(self._v)
     def __iter__(self): return iter(self._v)
@@ -118,7 +130,8 @@ class Row:
 
 class Cursor:
     def __init__(self, cur, returning=False):
-        self._c = cur; self.lastrowid = None; self.rowcount = cur.rowcount; self._keys = None; self._pending = None
+        self._c = cur; self.rowcount = cur.rowcount; self._keys = None
+        self.lastrowid = getattr(cur, "lastrowid", None) or None        # MySQL: the driver knows it
         if returning:
             rows = cur.fetchall() if cur.description else []
             self.lastrowid = rows[-1][0] if rows else None
@@ -156,9 +169,35 @@ def placeholders(sql, has_params):
         out.append("%%" if ch == "%" else ch); i += 1
     return "".join(out)
 
+_RESERVED_MYSQL = re.compile(r"(?<![`\w.:])(key|stored)(?![`\w])|(?<=\.)(key|stored)(?![`\w])", re.I)
+
+def _outside_quotes(sql, fn):
+    """Apply fn to the parts of sql that are not inside '...' or "..." literals."""
+    out, buf, quote_ch = [], [], None
+    for ch in sql:
+        if quote_ch:
+            out.append(ch)
+            if ch == quote_ch: quote_ch = None
+        elif ch in "'\"":
+            out.append(fn("".join(buf))); buf = []; out.append(ch); quote_ch = ch
+        else: buf.append(ch)
+    out.append(fn("".join(buf)))
+    return "".join(out)
+
+def _mysql(sql):
+    def fix(part):
+        part = _RESERVED_MYSQL.sub(lambda m: f"`{m.group(1) or m.group(2)}`", part)
+        part = re.sub(r"\bCOLLATE\s+NOCASE\b", "COLLATE utf8mb4_unicode_ci", part, flags=re.I)
+        part = re.sub(r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", "INSERT IGNORE INTO", part, flags=re.I)
+        part = re.sub(r"\bON\s+CONFLICT\s*\([^)]*\)\s*DO\s+UPDATE\s+SET\b", "ON DUPLICATE KEY UPDATE", part, flags=re.I)
+        part = re.sub(r"\bON\s+CONFLICT\s*(\([^)]*\))?\s*DO\s+NOTHING\b", "", part, flags=re.I)
+        return re.sub(r"\bexcluded\.(\w+)", r"VALUES(\1)", part, flags=re.I)
+    return _outside_quotes(sql, fix)
+
 def translate(sql, eng, has_params=True):
     """SQLite-flavoured SQL -> the engine's. Returns (sql, adds_returning)."""
     returning = False
+    if eng == "mysql": return placeholders(_mysql(sql), has_params), False
     m = _INSERT.match(sql)
     if eng == "postgres":
         if m and m.group(1):
@@ -238,18 +277,37 @@ def connect(cfg=None, wait=False):
             print(f"[db] waiting for {cfg.describe()}: {str(e).strip().splitlines()[0] if str(e).strip() else e}", flush=True)
             time.sleep(2)
 
+def mysql_args(url, multi=False):
+    """PyMySQL connect() arguments from a mysql:// URL (?sslmode=require|verify-full turns on TLS)."""
+    u = urlsplit(url); q = dict(p.split("=", 1) for p in u.query.split("&") if "=" in p)
+    args = dict(host=u.hostname or "localhost", port=u.port or 3306, user=unquote(u.username or ""), password=unquote(u.password or ""),
+                database=unquote(u.path.lstrip("/")), charset="utf8mb4", autocommit=False, connect_timeout=10,
+                init_command="SET SESSION sql_mode=CONCAT(@@sql_mode, ',STRICT_TRANS_TABLES'), time_zone='+00:00'")
+    mode = q.get("sslmode", "")
+    if mode in ("require", "verify-ca", "verify-full"):
+        import ssl
+        ctx = ssl.create_default_context()
+        if mode == "require": ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+        args["ssl"] = ctx
+    if multi: args["client_flag"] = pymysql.constants.CLIENT.MULTI_STATEMENTS
+    return args
+
 def _connect_server(cfg):
     if cfg.engine == "postgres":
         if psycopg is None: raise SystemExit("PostgreSQL needs the psycopg package (it is in the Docker image).")
         url = re.sub(r"^\w+(\+\w+)?://", "postgresql://", cfg.url)
         raw = psycopg.connect(url, cursor_factory=psycopg.ClientCursor, connect_timeout=10)
         return Conn(raw, "postgres")
+    if cfg.engine == "mysql":
+        if pymysql is None: raise SystemExit("MariaDB/MySQL needs the PyMySQL package (it is in the Docker image).")
+        return Conn(pymysql.connect(**mysql_args(cfg.url)), "mysql")
     raise SystemExit(f"Database type {cfg.engine} isn't supported yet.")
 
 # ---------------------------------------------------------------- engine-specific SQL helpers
 def like_op():
     """`<expr> LIKE ?` that ignores case and treats ! as the escape character, on every engine."""
     if engine() == "postgres": return """COLLATE "default" ILIKE ? ESCAPE '!'"""
+    if engine() == "mysql": return "COLLATE utf8mb4_unicode_ci LIKE ? ESCAPE '!'"
     return "LIKE ? ESCAPE '!'"
 
 def ci(expr):
@@ -264,21 +322,27 @@ def json_key(key):
 def json_get(col):
     """SQL for one value (as text) of a JSON object column; takes one parameter, json_key(...)."""
     if engine() == "postgres": return f"(({col})::jsonb ->> ?)"
+    if engine() == "mysql": return f"JSON_UNQUOTE(JSON_EXTRACT({col}, ?))"
     return f"json_extract({col}, ?)"
 
 def json_has(col, op):
     """SQL that is true when any value of a JSON object column matches `op` (e.g. like_op()), which takes the parameters."""
     if engine() == "postgres": return f"EXISTS(SELECT 1 FROM jsonb_each_text(({col})::jsonb) AS je WHERE je.value {op})"
+    if engine() == "mysql":
+        return f"EXISTS(SELECT 1 FROM JSON_TABLE({col}, '$.*' COLUMNS(value TEXT PATH '$')) AS je WHERE je.value {op})"
     return f"EXISTS(SELECT 1 FROM json_each({col}) WHERE value {op})"
 
 def json_drop(col):
     """SQL for a JSON object column without one key; takes one parameter, json_key(...)."""
     if engine() == "postgres": return f"((({col})::jsonb - ?)::text)"
+    if engine() == "mysql": return f"JSON_REMOVE({col}, ?)"
     return f"json_remove({col}, ?)"
 
 def group_concat_distinct(expr):
     """The distinct values of expr joined with commas (NULL when there are none)."""
-    return f"string_agg(DISTINCT {expr}, ',')" if engine() == "postgres" else f"group_concat(DISTINCT {expr})"
+    if engine() == "postgres": return f"string_agg(DISTINCT {expr}, ',')"
+    if engine() == "mysql": return f"GROUP_CONCAT(DISTINCT {expr} SEPARATOR ',')"
+    return f"group_concat(DISTINCT {expr})"
 
 def greatest(a, b):
     return f"MAX({a}, {b})" if engine() == "sqlite" else f"GREATEST({a}, {b})"
@@ -298,3 +362,15 @@ def now():
 
 def ago(days):
     return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() - days * 86400))
+
+def fit_places(c, iid, total=None):
+    """An item's other places never hold more than its total: when they would, they shrink in proportion. The app
+    calls this wherever qty can drop; the places_fit trigger in each schema is the backstop."""
+    if total is None:
+        r = c.execute("SELECT qty FROM items WHERE id=?", (iid,)).fetchone()
+        if not r: return
+        total = r[0]
+    held = c.execute("SELECT COALESCE(SUM(qty), 0) FROM item_places WHERE item_id=?", (iid,)).fetchone()[0]
+    if total < held - 1e-12:
+        c.execute("UPDATE item_places SET qty=qty*?/? WHERE item_id=?", (total, held, iid))
+        c.execute("DELETE FROM item_places WHERE item_id=? AND qty<1e-9", (iid,))

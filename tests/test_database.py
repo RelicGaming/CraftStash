@@ -100,7 +100,7 @@ def test_move_between_sqlite_databases(tmp_path):
     assert sqlite3.connect(dst / "craft.db").execute("SELECT username, is_admin FROM users").fetchall() == [("amy", 1)]
 
 @pytest.mark.skipif(not TEST_DB, reason="needs TEST_DATABASE_URL")
-def test_move_from_sqlite_to_postgres_and_the_startup_guard(tmp_path, make_env):
+def test_move_from_sqlite_to_a_server_and_the_startup_guard(tmp_path, make_env):
     reset_test_db()
     data = tmp_path / "d"; data.mkdir()
     assert manage({"DATA_DIR": str(data)}, "create-user", "amy", "--password", "password1").returncode == 0
@@ -110,14 +110,15 @@ def test_move_from_sqlite_to_postgres_and_the_startup_guard(tmp_path, make_env):
     assert r.returncode != 0 and "move-db" in r.stderr and "1 account" in r.stderr
     reset_test_db()
     r = manage({"DATA_DIR": str(data)}, "move-db", "--to", TEST_DB); assert r.returncode == 0, r.stderr
-    import psycopg
-    with psycopg.connect(TEST_DB) as c: assert c.execute("SELECT username FROM users").fetchall() == [("amy",)]
+    c = dbx.connect(dbx.config_from_env_url(TEST_DB, data / "craft.db"))
+    try: assert c.execute("SELECT username FROM users").fetchall() == [("amy",)]
+    finally: c.close()
     r = subprocess.run([sys.executable, "-c", "import app"], cwd=APP, capture_output=True, text=True,
                        env={**os.environ, "DATA_DIR": str(data), "DATABASE_URL": TEST_DB, "BACKUP_KEEP": "0"})
     assert r.returncode == 0, r.stderr                                                     # now it starts
 
 @pytest.mark.skipif(not TEST_DB, reason="needs TEST_DATABASE_URL")
-def test_sqlite_backup_restores_into_postgres(env, amy, tmp_path):
+def test_sqlite_backup_restores_into_a_server_database(env, amy, tmp_path):
     seed(amy)
     old = tmp_path / "old"; old.mkdir()
     assert manage({"DATA_DIR": str(old)}, "create-user", "zoe", "--password", "password1").returncode == 0
@@ -126,11 +127,52 @@ def test_sqlite_backup_restores_into_postgres(env, amy, tmp_path):
     assert list((env.data / "backups").glob("pre-restore-*.json"))                        # what was there is kept
 
 @pytest.mark.skipif(not TEST_DB, reason="needs TEST_DATABASE_URL")
-def test_usernames_and_places_ignore_case_on_postgres(env, amy):
+def test_usernames_and_places_ignore_case_on_a_server(env, amy):
     assert env.client().register("AMY").html("/").count("Your collections") == 0             # taken, whatever the case
     seed(amy); amy.post("/items/1/edit", {"name": "Merino", "qty": "5", "place_name": ["Shelf"], "place_qty": ["2"]})
     amy.post("/items/1/move", {"amount": "1", "from": "", "to": "SHELF"})
     assert env.db().execute("SELECT place, qty FROM item_places").fetchall() == [("Shelf", 3.0)]
+
+# ---------------------------------------------------------------- MariaDB / MySQL translation
+@pytest.mark.parametrize("sql, out", [
+    ("INSERT OR IGNORE INTO project_shares(project_id,user_id) VALUES(?,?)", "INSERT IGNORE INTO project_shares(project_id,user_id) VALUES(%s,%s)"),
+    ("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+     "INSERT INTO settings(`key`,value) VALUES(%s,%s) ON DUPLICATE KEY UPDATE value=VALUES(value)"),
+    ("INSERT INTO item_places(item_id,place,qty) VALUES(?,?,?) ON CONFLICT(item_id,place) DO UPDATE SET qty=item_places.qty+excluded.qty",
+     "INSERT INTO item_places(item_id,place,qty) VALUES(%s,%s,%s) ON DUPLICATE KEY UPDATE qty=item_places.qty+VALUES(qty)"),
+    ("SELECT f.stored FROM files f WHERE key='stored' ORDER BY name COLLATE NOCASE",
+     "SELECT f.`stored` FROM files f WHERE `key`='stored' ORDER BY name COLLATE utf8mb4_unicode_ci"),
+    ("SELECT x FROM t WHERE a=:stored", "SELECT x FROM t WHERE a=%(stored)s"),
+])
+def test_mysql_translation(sql, out):
+    assert dbx.translate(sql, "mysql")[0] == out
+
+def test_mysql_config(monkeypatch):
+    c = cfg(monkeypatch, DB_TYPE="mariadb", DB_HOST="db", DB_PASSWORD="x y", DB_SSLMODE="require")
+    assert c.engine == "mysql" and c.url == "mysql://craftstash:x%20y@db:3306/craftstash?sslmode=require"
+    a = dbx.mysql_args(c.url)
+    assert a["host"] == "db" and a["password"] == "x y" and a["database"] == "craftstash" and a["charset"] == "utf8mb4" and "ssl" in a
+
+def test_decimal_sums_come_back_as_numbers():
+    from decimal import Decimal
+    r = dbx.Row((Decimal("3"), Decimal("2.5")), {"a": 0, "b": 1})
+    assert r["a"] == 3 and isinstance(r["a"], int) and r["b"] == 2.5 and isinstance(r["b"], float)
+
+@pytest.mark.skipif(not TEST_DB.startswith(("mysql", "mariadb")), reason="needs a MariaDB/MySQL TEST_DATABASE_URL")
+def test_mysql_account_without_trigger_rights_still_works(tmp_path):
+    reset_test_db()
+    import pymysql
+    a = dbx.mysql_args(TEST_DB); name = a["database"]; a["autocommit"] = True
+    root = pymysql.connect(**a)
+    try:
+        cur = root.cursor(); cur.execute("DROP USER IF EXISTS 'cs_limited'@'%'"); cur.execute("CREATE USER 'cs_limited'@'%' IDENTIFIED BY 'pw'")
+        cur.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER, CREATE VIEW, REFERENCES ON `{name}`.* TO 'cs_limited'@'%'")
+    finally: root.close()
+    url = f"mysql://cs_limited:pw@{a['host']}:{a['port']}/{name}"
+    r = subprocess.run([sys.executable, "-c", "import app"], cwd=APP, capture_output=True, text=True,
+                       env={**os.environ, "DATA_DIR": str(tmp_path), "DATABASE_URL": url, "BACKUP_KEEP": "0"})
+    assert r.returncode == 0, r.stderr
+    assert "places_fit trigger" in r.stdout + r.stderr
 
 def test_empty_settings_count_as_unset(monkeypatch):
     """docker-compose passes every variable, so DB_USER= and DB_NAME= arrive as empty strings."""

@@ -1,5 +1,6 @@
 """CSV import. Works inside the caller's transaction so a dry run can simply roll back."""
 import csv, io, json, math, re, secrets
+import dbx
 
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
 CANON = {"material type": "type", "type": "type", "material": "type", "name": "name", "item": "name",
@@ -98,6 +99,7 @@ def run_import(d, pool_id, text, update=True, default_type="Imported"):
         if old:
             extra = json.loads(old["extra"]); extra.update(ex); vals["extra"] = json.dumps(extra)
             d.execute("UPDATE items SET " + ",".join(f"{k}=?" for k in vals) + " WHERE id=?", [*vals.values(), old["id"]])
+            dbx.fit_places(d, old["id"])
             res["updated"] += 1
         else:
             vals.update(type_id=t["id"], name=name, colour=colour, extra=json.dumps(ex))

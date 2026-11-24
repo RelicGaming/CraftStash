@@ -574,7 +574,7 @@ def undo(aid):
     a = get("SELECT * FROM activity WHERE id=?", aid); pool_of(a["pool_id"], write=True)
     it = db().execute("SELECT * FROM items WHERE id=?", (a["item_id"],)).fetchone() if a["item_id"] else None
     if a["kind"] == "adjust" and not a["undone"] and it:
-        run(f"UPDATE items SET qty={dbx.greatest('0', 'qty-?')} WHERE id=?", a["delta"], it["id"]); run("UPDATE activity SET undone=1 WHERE id=?", aid)
+        db().execute(f"UPDATE items SET qty={dbx.greatest('0', 'qty-?')} WHERE id=?", (a["delta"], it["id"])); fit_places(it["id"], None); run("UPDATE activity SET undone=1 WHERE id=?", aid)
         log(a["pool_id"], "undo", "Undid: " + a["text"], it["id"])
     return redirect(url_for("activity", pid=a["pool_id"]))
 
@@ -794,10 +794,7 @@ def lock_item(iid):
 def fit_places(iid, total):
     """The other places never hold more than the item's total: when they would, they shrink in proportion (the
     places_fit trigger does the same as a backstop for any other way qty changes)."""
-    held = db().execute("SELECT COALESCE(SUM(qty), 0) FROM item_places WHERE item_id=?", (iid,)).fetchone()[0]
-    if total < held - 1e-12:
-        db().execute("UPDATE item_places SET qty=qty*?/? WHERE item_id=?", (total, held, iid))
-        db().execute("DELETE FROM item_places WHERE item_id=? AND qty<1e-9", (iid,))
+    dbx.fit_places(db(), iid, total)
 
 def adjust_stock(i, n, add, place=""):
     """Use or add n of a stock row i, optionally at one of its other places. Returns the new total."""
@@ -1003,7 +1000,7 @@ def complete(id):
             want = 0 if keep else num(request.form.get(f"used_{a['id']}"), a["qty"])   # the amount actually used, if given
             used = min(want, a["have"])                        # used=0 also means reopening puts nothing back
             if used < want - 1e-9: capped += 1
-            if used: d.execute("UPDATE items SET qty=qty-? WHERE id=?", (used, a["item_id"]))
+            if used: d.execute("UPDATE items SET qty=qty-? WHERE id=?", (used, a["item_id"])); fit_places(a["item_id"], None)
             d.execute("UPDATE assignments SET consumed=1, used=? WHERE id=?", (used, a["id"]))
             if used: log(a["pool_id"], "project", f"{pr['name']}: used {used:g} {a['unit']} of {a['name']}", a["item_id"], -used, commit=False)
         d.execute("UPDATE projects SET status='done' WHERE id=?", (id,)); d.commit()

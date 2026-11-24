@@ -2,4 +2,5 @@ flask==3.1.3
 gunicorn==27.0.1
 Pillow==13.0.0
 psycopg[binary]==3.3.9   # PostgreSQL (only used when DATABASE_URL points at one)
+PyMySQL==1.2.4           # MariaDB / MySQL (likewise)
 tzdata>=2024.1

@@ -25,8 +25,8 @@ services:
       TMP_DIR: "${TMP_DIR:-}"                 # uploads while they arrive, backup zips (default /data/tmp)
       CHOWN: "${CHOWN:-auto}"                 # auto | always | never (never for NAS shares with their own permissions)
       # Database: SQLite in /data unless one of these points at an external server (see "Database" in the README).
-      DATABASE_URL: "${DATABASE_URL:-}"       # e.g. postgresql://craftstash:secret@postgres:5432/craftstash
-      DB_TYPE: "${DB_TYPE:-}"                 # or the parts separately: postgres, with DB_HOST, DB_PORT, DB_NAME, DB_USER,
+      DATABASE_URL: "${DATABASE_URL:-}"       # e.g. postgresql://craftstash:secret@postgres:5432/craftstash or mysql://...:3306/...
+      DB_TYPE: "${DB_TYPE:-}"                 # or the parts separately: postgres or mariadb, with DB_HOST, DB_PORT, DB_NAME, DB_USER,
       DB_HOST: "${DB_HOST:-}"                 #   DB_PASSWORD (or DB_PASSWORD_FILE for a Docker secret)
       DB_PORT: "${DB_PORT:-}"
       DB_NAME: "${DB_NAME:-}"
