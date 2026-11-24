@@ -35,8 +35,57 @@ app.jinja_env.filters["fromjson"] = lambda s: json.loads(s or "{}")
 app.jinja_env.filters["money"] = lambda v: f"{currency()}{float(v):,.2f}"
 app.jinja_env.filters["local"] = lambda ts: local_time(ts)
 app.jinja_env.filters["gb"] = lambda n: "?" if n is None else (f"{n / 1e9:,.1f} GB" if n >= 1e9 else f"{n / 1e6:,.0f} MB")
-_hops = int(os.environ.get("TRUST_PROXY", "0") or 0)
-if _hops: app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_hops, x_proto=_hops, x_host=_hops)   # behind Nginx Proxy Manager
+# ---------- reverse proxies ----------
+# TRUST_PROXY: how many proxies are in front (1 behind Nginx Proxy Manager, Traefik, Caddy...). Their X-Forwarded-*
+# headers are believed, which gives the real client address, https and host. TRUSTED_PROXIES (addresses or ranges,
+# comma separated) narrows that to requests that actually come from those addresses; from anywhere else the headers
+# are dropped, so a client that reaches the port directly can't pretend to be someone else.
+# URL_PREFIX hosts the app under a path, e.g. /craft for https://example.com/craft/ (the proxy may strip it or not).
+import ipaddress
+def _nets(v):
+    out = []
+    for part in re.split(r"[,\s]+", v or ""):
+        if not part: continue
+        try: out.append(ipaddress.ip_network(part, strict=False))
+        except ValueError: raise SystemExit(f"TRUSTED_PROXIES: '{part}' isn't an IP address or range (like 172.16.0.0/12).")
+    return out
+TRUSTED_NETS = _nets(os.environ.get("TRUSTED_PROXIES", ""))
+_hops = int(os.environ.get("TRUST_PROXY", "0") or 0) or (1 if TRUSTED_NETS else 0)
+_prefix = (os.environ.get("URL_PREFIX") or "").strip().strip("/")
+if _prefix and (not re.fullmatch(r"[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)*", _prefix) or any(set(p) == {"."} for p in _prefix.split("/"))):
+    raise SystemExit("URL_PREFIX: use a plain path like /craft (letters, numbers, - . _ ~ and /).")
+URL_PREFIX = "/" + _prefix if _prefix else ""
+
+class TrustedProxies:
+    """Apply ProxyFix only to requests from TRUSTED_PROXIES (or from anywhere, when that is empty)."""
+    def __init__(self, wsgi, hops, nets):
+        self.plain, self.nets = wsgi, nets
+        self.fixed = ProxyFix(wsgi, x_for=hops, x_proto=hops, x_host=hops, x_port=hops, x_prefix=hops)
+    def trusted(self, addr):
+        if not self.nets: return True
+        try: ip = ipaddress.ip_address((addr or "").split("%")[0])
+        except ValueError: return False
+        if ip.version == 6 and ip.ipv4_mapped: ip = ip.ipv4_mapped
+        return any(ip in n for n in self.nets)
+    def __call__(self, environ, start):
+        if self.trusted(environ.get("REMOTE_ADDR")): return self.fixed(environ, start)
+        for k in [k for k in environ if k.startswith("HTTP_X_FORWARDED_")]: del environ[k]
+        return self.plain(environ, start)
+
+class Prefix:
+    """Serve the app under URL_PREFIX whether or not the proxy strips it, so links, static files, redirects and the
+    session cookie path all carry it. Paths without it (the container's own health check) still work."""
+    def __init__(self, wsgi, prefix): self.wsgi, self.prefix = wsgi, prefix
+    def __call__(self, environ, start):
+        path = environ.get("PATH_INFO", "")
+        if path == self.prefix or path.startswith(self.prefix + "/"): environ["PATH_INFO"] = path[len(self.prefix):] or "/"
+        environ["SCRIPT_NAME"] = self.prefix
+        return self.wsgi(environ, start)
+
+if URL_PREFIX:
+    app.wsgi_app = Prefix(app.wsgi_app, URL_PREFIX)
+    app.config.update(APPLICATION_ROOT=URL_PREFIX, SESSION_COOKIE_PATH=URL_PREFIX)
+if _hops: app.wsgi_app = TrustedProxies(app.wsgi_app, _hops, TRUSTED_NETS)
 try: TZ = ZoneInfo(os.environ.get("TZ") or "UTC")
 except ZoneInfoNotFoundError: TZ = ZoneInfo("UTC")
 
@@ -777,8 +826,8 @@ def item_del(iid):
     return redirect(url_for("pool", pid=i["pool_id"]))
 
 def safe_next(default):
-    n = request.form.get("next", "")
-    return n if n.startswith("/") and not n.startswith("//") and "\\" not in n else default
+    n = request.form.get("next", "")      # a path inside the app (request.full_path), so URL_PREFIX is added here
+    return request.script_root + n if n.startswith("/") and not n.startswith("//") and "\\" not in n else default
 
 @app.post("/items/<int:iid>/adjust")
 def item_adjust(iid):

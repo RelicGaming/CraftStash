@@ -24,8 +24,20 @@ The first account to register becomes the admin. Admins manage users from the **
 - Daily database snapshots and a one-click full backup (admin).
 - **JSON API** with per-user tokens, for Home Assistant and scripts: shopping list, stock, collections and projects, plus restocking and using stock. See [API and Home Assistant](#api-and-home-assistant).
 
-## Behind Nginx Proxy Manager
-Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status from NPM. Only do this when NPM is the **only** way to reach the app: with `TRUST_PROXY=1` anyone who can reach port 8080 directly can fake their address (and dodge the login limiter).
+## Behind a reverse proxy
+Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status from the proxy. Also set
+`TRUSTED_PROXIES` to the proxy's address or Docker network (e.g. `172.16.0.0/12`, comma-separate several): forwarded
+headers from anywhere else are then ignored, so someone who reaches port 8080 directly can't fake their address (and
+dodge the login limiter). Without `TRUSTED_PROXIES`, only use `TRUST_PROXY=1` when the proxy is the **only** way in.
+The narrower the better: `docker network inspect proxy` shows the proxy network's subnet, and connections from the
+host itself through a published port arrive from Docker's gateway address, which `172.16.0.0/12` includes.
+
+**Bundled Nginx Proxy Manager.** Add `npm` to `COMPOSE_PROFILES` (e.g. `COMPOSE_PROFILES=npm`) and compose starts NPM
+next to the app on ports 80/443 (admin UI on 81; change them with `NPM_HTTP_PORT`, `NPM_HTTPS_PORT`, `NPM_ADMIN_PORT`).
+Its data and certificates go in named volumes, or host folders with `NPM_DATA_DIR` and `NPM_LETSENCRYPT_DIR`. Then
+follow steps 2-4 below, forwarding to `craft-stash` port `8000`.
+
+**Your own Nginx Proxy Manager:**
 
 1. **Network.** Best: put both containers on one Docker network. Create it once (`docker network create proxy`), attach NPM to it, then in `docker-compose.yml` uncomment the `networks` lines and delete the `ports:` block. NPM then forwards to `craft-stash:8000` and nothing is exposed on the host. Otherwise keep the `ports:` block and forward to `<host-ip>:8080`, and firewall that port so only NPM can reach it.
 2. **Proxy host in NPM:** Scheme `http`, forward host/port as above, tick **Block Common Exploits**. On the SSL tab request a certificate and tick **Force SSL** and **HSTS**.
@@ -37,13 +49,23 @@ Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status
 4. Leave `COOKIE_SECURE=auto`: cookies become `Secure` automatically for HTTPS requests, and plain `http://host-ip:8080` still works on your LAN.
 5. Set `TZ` (e.g. `Australia/Brisbane`) so the activity log shows local times.
 
+**Traefik, Caddy, nginx, SWAG, HAProxy, Cloudflare Tunnel:** ready-to-adapt configs are in [`deploy/`](deploy/), each
+with the upload limit and timeouts set.
+
+**Under a path** (`https://example.com/craft/` instead of a subdomain): set `URL_PREFIX=/craft` and forward
+`/craft/` to the app. The proxy may strip the prefix or pass it through; links, static files, redirects and the
+session cookie all follow it. A proxy that sends `X-Forwarded-Prefix` works without `URL_PREFIX`.
+
 ## Settings (`.env` or the Dockhand stack variables)
 | Variable | Default | Use |
 |---|---|---|
 | `PORT` | 8080 | Host port, if you publish one |
 | `PUID` / `PGID` | 10001 | Who owns the files in `/data`. Unraid: `99` / `100`. Needed when `/data` is a host folder |
 | `TZ` | UTC | Time zone for the activity log |
-| `TRUST_PROXY` | 0 | Proxies in front. `1` behind Nginx Proxy Manager, only if the app can't be reached any other way |
+| `TRUST_PROXY` | 0 | Proxies in front. `1` behind Nginx Proxy Manager or another proxy (see [Behind a reverse proxy](#behind-a-reverse-proxy)) |
+| `TRUSTED_PROXIES` | empty | Addresses or ranges whose forwarded headers are believed, e.g. `172.16.0.0/12`. Implies `TRUST_PROXY=1` |
+| `URL_PREFIX` | empty | Serve under a path, e.g. `/craft` |
+| `COMPOSE_PROFILES` | empty | Bundled extras: `npm`, `postgres`, `mariadb` (comma separated) |
 | `COOKIE_SECURE` | auto | `auto`, `1` (always) or `0` (never) |
 | `ALLOW_SIGNUP` | 1 | Starting default for open sign-up; the Users page overrides it. `0` also closes the first-admin sign-up (see Quick start) |
 | `MAX_UPLOAD_MB` | 25 | Largest single upload |
@@ -124,6 +146,10 @@ distribution packages are. On MariaDB/MySQL, usernames and storage places compar
 (`utf8mb4_unicode_ci`) and everything else exactly, as on SQLite. If the account may not create triggers (common with
 binary logging on), the log says so once; nothing is lost, as the app keeps the rule the trigger backs up. `/data` is still needed for the secret key, and for photos and files unless they are
 [mapped elsewhere](#storage). Run one copy of the app.
+
+**Bundled database.** `COMPOSE_PROFILES=postgres` (or `mariadb`) with `DB_TYPE=postgres` (or `mariadb`) and a
+`DB_PASSWORD` starts a database container next to the app; the app waits for it to be healthy. Its files go in a
+named volume, or a host folder with `POSTGRES_DATA_DIR` / `MARIADB_DATA_DIR`.
 
 **Moving to another database.** Stop the app, then copy everything across with the old setting still in place:
 

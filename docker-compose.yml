@@ -1,3 +1,8 @@
+# Craft Stash, plus optional bundled services switched on with COMPOSE_PROFILES (in .env or Dockhand's variables):
+#   npm        Nginx Proxy Manager in front (ports 80/443, admin UI on 81)
+#   postgres   a PostgreSQL database for the app (also set DB_TYPE=postgres and DB_PASSWORD)
+#   mariadb    a MariaDB database for the app (also set DB_TYPE=mariadb and DB_PASSWORD)
+# e.g. COMPOSE_PROFILES=npm,postgres. With none, it is the app alone with SQLite, as before.
 services:
   craft-stash:
     build: .                                  # builds from this repo if the host can
@@ -11,6 +16,8 @@ services:
       PGID: "${PGID:-10001}"                  # Unraid: 100
       TZ: "${TZ:-UTC}"                        # e.g. Australia/Brisbane, used for times in the activity log
       TRUST_PROXY: "${TRUST_PROXY:-0}"        # proxies in front: 1 behind Nginx Proxy Manager, 0 if the port is reachable directly
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}" # only believe proxy headers from these addresses/ranges, e.g. 172.16.0.0/12
+      URL_PREFIX: "${URL_PREFIX:-}"           # serve under a path, e.g. /craft for https://example.com/craft/
       COOKIE_SECURE: "${COOKIE_SECURE:-auto}" # auto = secure cookies whenever the request came in over HTTPS
       ALLOW_SIGNUP: "${ALLOW_SIGNUP:-1}"      # only the starting default; the Users page can override it
       MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
@@ -50,13 +57,87 @@ services:
     # on a mapped folder then fails loudly instead of quietly filling Docker's disk.
     # read_only: true
     # tmpfs: [/run]
-    # Shared network with Nginx Proxy Manager (then NPM forwards to craft-stash:8000 and no host port is needed):
+    depends_on:                               # wait for a bundled database, when its profile is on
+      postgres: {condition: service_healthy, required: false}
+      mariadb: {condition: service_healthy, required: false}
+    # Your own Nginx Proxy Manager (or other proxy) on another Docker network: join it, then the proxy forwards to
+    # craft-stash:8000 and the ports: block above can go.
     # networks: [default, proxy]
+
+  npm:                                        # COMPOSE_PROFILES=npm
+    profiles: [npm]
+    image: ${NPM_IMAGE:-jc21/nginx-proxy-manager:2}
+    container_name: craft-stash-npm
+    restart: unless-stopped
+    ports:
+      - "${NPM_HTTP_PORT:-80}:80"
+      - "${NPM_HTTPS_PORT:-443}:443"
+      - "${NPM_ADMIN_PORT:-81}:81"            # admin UI; first login creates the admin account
+    environment:
+      DB_SQLITE_FILE: /data/database.sqlite
+      DISABLE_IPV6: "true"
+    volumes:
+      - ${NPM_DATA_DIR:-npm-data}:/data                     # a host folder works too, e.g. /mnt/user/appdata/npm/data
+      - ${NPM_LETSENCRYPT_DIR:-npm-letsencrypt}:/etc/letsencrypt
+    healthcheck:
+      test: ["CMD", "/usr/bin/check-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  postgres:                                   # COMPOSE_PROFILES=postgres
+    profiles: [postgres]
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    container_name: craft-stash-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${DB_NAME:-craftstash}"
+      POSTGRES_USER: "${DB_USER:-craftstash}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-}"   # required: set DB_PASSWORD
+    volumes:
+      - ${POSTGRES_DATA_DIR:-postgres-data}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  mariadb:                                    # COMPOSE_PROFILES=mariadb
+    profiles: [mariadb]
+    image: ${MARIADB_IMAGE:-mariadb:11}
+    container_name: craft-stash-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: "${DB_NAME:-craftstash}"
+      MARIADB_USER: "${DB_USER:-craftstash}"
+      MARIADB_PASSWORD: "${DB_PASSWORD:-}"    # required: set DB_PASSWORD
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_bin"]
+    volumes:
+      - ${MARIADB_DATA_DIR:-mariadb-data}:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
 
 # networks:
 #   proxy:
 #     external: true
-#     name: ${PROXY_NETWORK:-proxy}           # the network your NPM container is on
+#     name: ${PROXY_NETWORK:-proxy}           # the network your own proxy container is on
 
-volumes:
+volumes:                                      # named volumes, used unless a *_DATA_DIR above points at a host folder
   craft-data:
+  npm-data:
+  npm-letsencrypt:
+  postgres-data:
+  mariadb-data:
