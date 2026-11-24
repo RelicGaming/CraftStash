@@ -8,12 +8,24 @@
 {% if pool.can_edit %}<a class="btn secondary sm" href="{{ url_for('import_csv', pid=pool.id) }}">Import CSV</a>{% endif %}
 <a class="btn secondary sm" href="{{ url_for('export_csv', pid=pool.id) }}">Export CSV</a>
 {% if not pool.is_owner %}<form method="post" action="{{ url_for('leave_pool', pid=pool.id) }}" data-confirm="Leave this collection? Your reservations from it will be removed.">{{ csrf }}<button class="btn ghost danger sm">Leave</button></form>{% endif %}</div></div>
-<div class="strip lg">{% for h in hexes %}<i style="--c:{{ h }}"></i>{% endfor %}</div>
-<form class="inline" method="get"><div class="search"><svg class="i"><use href="#i-search"/></svg>
+{% macro type_form(first) %}
+<form method="post" action="{{ url_for('new_type', pid=pool.id) }}">{{ csrf }}
+{% if presets %}<p class="muted small" style="margin:0 0 8px">{{ 'Tap one to start' if first else 'Quick add' }}. Each comes with a unit and useful fields you can change later.</p>
+<div class="presets">{% for k, p in presets %}<button class="btn secondary" name="preset" value="{{ k }}" formnovalidate><svg class="i"><use href="#i-plus"/></svg>{{ p[0] }} <small>{{ p[1] }}</small></button>{% endfor %}</div>
+<p class="muted small" style="margin:16px 0 0"><strong>Or make your own</strong></p>{% endif %}
+<div class="form-grid" style="margin-top:8px"><label class="field"><span>Name</span><input name="name" required maxlength="60" placeholder="Fabric"></label>
+<label class="field"><span>Unit you count it in</span><input name="unit" maxlength="20" placeholder="pcs" list="units"></label>
+<label class="field wide"><span>Fields (optional, one per line)</span><textarea name="fields" rows="3" placeholder="Width (cm)&#10;Fibre: Cotton, Linen, Wool&#10;Pattern"></textarea>
+<small class="muted">A unit in brackets makes a number field. Options after a colon make a dropdown.</small></label></div>
+<datalist id="units">{% for u in ('pcs','m','cm','yd','g','skein','ball','spool','pack','tube','sheet') %}<option value="{{ u }}">{% endfor %}</datalist>
+<div class="form-actions"><button class="btn">Create type</button></div></form>
+{% endmacro %}
+{% if hexes %}<div class="strip lg">{% for h in hexes %}<i style="--c:{{ h }}"></i>{% endfor %}</div>{% endif %}
+{% if has_items %}<form class="inline" method="get"><div class="search"><svg class="i"><use href="#i-search"/></svg>
 <input name="q" value="{{ term }}" placeholder="Search supplies, or one field like {{ hint }}:value" aria-label="Search this collection"></div>
 <select name="sort" aria-label="Sort items" style="flex:none;width:auto">{% for k, l in (('name','Name'),('colour','Colour'),('low','Lowest stock'),('new','Newest')) %}<option value="{{ k }}" {{ 'selected' if sort == k }}>Sort: {{ l }}</option>{% endfor %}</select>
 <button class="btn">Search</button>{% if term %}<a class="btn secondary" href="{{ url_for('pool', pid=pool.id) }}">Clear</a>{% endif %}</form>
-<p class="muted small" style="margin:8px 0 20px">Search covers names, colours, notes and every custom field. Use Label:value to search a single field.</p>
+<p class="muted small" style="margin:8px 0 20px">Search covers names, colours, notes and every custom field. Use Label:value to search a single field.</p>{% endif %}
 
 {% for t, fl, rows in groups %}
 <details class="type" open><summary><svg class="i chev"><use href="#i-chev-d"/></svg>
@@ -21,7 +33,7 @@
 {% if pool.can_edit %}<a class="btn sm" href="{{ url_for('item_new', tid=t.id) }}"><svg class="i"><use href="#i-plus"/></svg>Add item</a>
 <a class="btn secondary sm" href="{{ url_for('type_fields', tid=t.id) }}">Fields</a>{% endif %}</summary>
 {% for i in rows %}{% set x = i.extra|fromjson %}
-<div class="item"><span class="sw-tile{{ '' if i.hex else ' none' }}{{ ' photo' if i.photo }}" {% if i.hex %}style="--c:{{ i.hex }}"{% endif %}>{% if i.photo %}<img src="{{ url_for('photo', iid=i.id) }}" alt="" loading="lazy">{% if i.hex %}<span class="dot"></span>{% endif %}{% endif %}</span>
+<div class="item" id="item-{{ i.id }}"><span class="sw-tile{{ '' if i.hex else ' none' }}{{ ' photo' if i.photo }}" {% if i.hex %}style="--c:{{ i.hex }}"{% endif %}>{% if i.photo %}<img src="{{ url_for('photo', iid=i.id) }}" alt="" loading="lazy">{% if i.hex %}<span class="dot"></span>{% endif %}{% endif %}</span>
 <div>{% if pool.can_edit %}<a class="item-name" href="{{ url_for('item_edit', iid=i.id) }}">{{ i.name }}</a>{% else %}<span class="item-name">{{ i.name }}</span>{% endif %}
 <div class="item-sub">{% if i.colour %}<span>{{ i.colour }}</span>{% endif %}{% if i.subtype %}<span>{{ i.subtype }}</span>{% endif %}
 {% for f in fl if x.get(f.id) %}<span class="chip"><b>{{ f.label }}</b>{{ x.get(f.id) }}</span>{% endfor %}
@@ -42,16 +54,16 @@
 <div class="item-stock"><strong>{{ '%g'|format(i.qty) }}</strong> {{ t.unit }}
 {% if i.free < 0 %}<small><span class="pill bad">Short by {{ '%g'|format(-i.free) }}</span></small>{% elif i.qty <= 0 %}<small><span class="pill bad">Out of stock</span></small>{% elif i.low_at is not none and i.qty <= i.low_at %}<small><span class="pill warn">Low stock</span></small>{% elif i.free <= 0 %}<small><span class="pill warn">All reserved</span></small>{% elif i.free < i.qty %}<small>{{ '%g'|format(i.free) }} free</small>{% endif %}</div>
 <div class="item-price">{% if i.price is not none %}{{ i.price|money }}<small>per {{ t.unit }}</small>{% endif %}</div></div>
-{% else %}<div class="empty">{% if term %}Nothing in {{ t.name }} matches “{{ term }}”.{% else %}No {{ t.name|lower }} yet.{% endif %}</div>{% endfor %}
+{% else %}<div class="empty">{% if term %}Nothing in {{ t.name }} matches “{{ term }}”.{% else %}No {{ t.name|lower }} yet.{% if pool.can_edit %} <a href="{{ url_for('item_new', tid=t.id) }}">Add the first one</a>{% endif %}{% endif %}</div>{% endfor %}
 </details>
-{% else %}<div class="panel stitch"><h3>Start with a material type</h3><p class="muted">A type is a kind of supply, like Fabric or Thread. Each type gets its own unit and custom fields.</p></div>{% endfor %}
+{% else %}{% if pool.can_edit %}<section class="panel stitch"><h2>Add your first material type</h2>
+<p class="muted">A material type is one kind of supply in this collection, like Yarn or Fabric. It sets the unit you count in and the details you record for each item.</p>
+{{ type_form(true) }}
+<p class="muted small" style="margin:16px 0 0">Already have a spreadsheet? <a href="{{ url_for('import_csv', pid=pool.id) }}">Import a CSV</a> instead.</p></section>
+{% else %}<div class="panel stitch"><h3>Nothing here yet</h3><p class="muted">{{ pool.owner }} hasn't added any supplies to this collection.</p></div>{% endif %}{% endfor %}
 
-{% if pool.can_edit %}<form class="panel stitch" method="post" action="{{ url_for('new_type', pid=pool.id) }}">{{ csrf }}<h3>New material type</h3>
-<div class="form-grid" style="margin-top:12px"><label class="field"><span>Name</span><input name="name" required maxlength="60" placeholder="Fabric"></label>
-<label class="field"><span>Unit</span><input name="unit" maxlength="20" placeholder="m, g, skein"></label>
-<label class="field wide"><span>Starter fields (optional, comma separated)</span><input name="fields" placeholder="Width, Fibre, Weight"></label></div>
-<p class="muted small">You can add number and dropdown fields on the next screen.</p>
-<div class="form-actions"><button class="btn">Create type</button></div></form>{% endif %}
+{% if pool.can_edit and groups %}<details class="panel stitch add-type"><summary><svg class="i"><use href="#i-plus"/></svg><strong>Add another material type</strong></summary>
+<div style="margin-top:12px">{{ type_form(false) }}</div></details>{% endif %}
 
 {% if pool.is_owner %}
 <form class="panel" method="post" action="{{ url_for('update_pool', pid=pool.id) }}">{{ csrf }}<div class="panel-head"><h2>Collection details</h2></div>

@@ -109,7 +109,7 @@ def new_collection(c, name):
 
 def new_type(c, pid, name="Yarn", unit="skein", fields="Brand"):
     r = c.post(f"/collections/{pid}/types", {"name": name, "unit": unit, "fields": fields}, follow=False)
-    m = re.search(r"/types/(\d+)/fields", r.loc); assert m, "material type was not created"; return int(m[1])
+    m = re.search(r"/types/(\d+)/items/new", r.loc); assert m, "material type was not created"; return int(m[1])
 
 def new_item(c, pid, tid, name, **f):
     c.post(f"/types/{tid}/items/new", {"name": name, "qty": "1", **f})
@@ -227,6 +227,19 @@ def _(t):
     u.post(f"{url}/{fid}/update", {"label": "GSM", "type": "number", "options": ""}); assert "GSM" in u.get(url).text, "rename failed"
     u.post(f"{url}/{fid}/delete"); assert "GSM" not in u.get(url).text, "field not deleted"
     u.post(f"/types/{tid}/update", {"name": "Fabrics", "unit": "yd"}); assert "Fabrics" in u.get(url).text, "type rename failed"
+
+@check("Collections", "Quick setup: new collection, preset type, typed starter fields, add another")
+def _(t):
+    u = t.user(); r = u.post("/collections", {"name": "Knit" + t.tag}, follow=False)
+    pid = int(re.search(r"/collections/(\d+)$", r.loc)[1])
+    assert "Add your first material type" in u.get(f"/collections/{pid}").text, "new collection does not open on setup"
+    r = u.post(f"/collections/{pid}/types", {"preset": "yarn"}, follow=False)
+    tid = int(re.search(r"/types/(\d+)/items/new", r.loc)[1]); pg = u.get(f"/types/{tid}/items/new").text
+    assert ">Worsted</option>" in pg and "Save and add another" in pg, "preset fields missing from the item form"
+    tid2 = new_type(u, pid, "Fabric", "m", "Width (cm)\nFibre: Cotton, Linen"); pg = u.get(f"/types/{tid2}/items/new").text
+    assert 'type=number' in pg and ">Linen</option>" in pg, "typed starter fields not created"
+    r = u.post(f"/types/{tid}/items/new", {"name": "First", "qty": "1", "then": "another"}, follow=False)
+    assert r.loc.endswith(f"/types/{tid}/items/new"), "save and add another did not return to the form"
 
 @check("Items", "Create, edit and delete an item with swatch, price and location")
 def _(t):
