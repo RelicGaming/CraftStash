@@ -23,6 +23,15 @@ CREATE INDEX IF NOT EXISTS ix_pools_user ON pools(user_id);
 CREATE INDEX IF NOT EXISTS ix_projects_user ON projects(user_id);
 CREATE INDEX IF NOT EXISTS ix_activity_user ON activity(user_id);
 CREATE INDEX IF NOT EXISTS ix_activity_ts ON activity(ts);
+CREATE TABLE IF NOT EXISTS item_places(id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES items ON DELETE CASCADE, place TEXT NOT NULL COLLATE NOCASE, qty REAL NOT NULL, UNIQUE(item_id, place));
+-- Part of an item's stock kept somewhere other than its main location. The places never add up to more than items.qty:
+-- the rest is at the main location, and when the total drops below what the places hold they shrink in proportion.
+CREATE TRIGGER IF NOT EXISTS places_fit AFTER UPDATE OF qty ON items
+WHEN NEW.qty < (SELECT COALESCE(SUM(qty), 0) FROM item_places WHERE item_id = NEW.id)
+BEGIN
+  UPDATE item_places SET qty = qty * NEW.qty / (SELECT SUM(qty) FROM item_places WHERE item_id = NEW.id) WHERE item_id = NEW.id;
+  DELETE FROM item_places WHERE item_id = NEW.id AND qty < 1e-9;
+END;
 CREATE VIEW IF NOT EXISTS access AS
   SELECT id AS pool_id, user_id, 1 AS can_edit, 1 AS is_owner FROM pools
   UNION ALL SELECT pool_id, user_id, can_edit, 0 FROM pool_shares;

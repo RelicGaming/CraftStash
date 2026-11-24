@@ -14,7 +14,7 @@ The first account to register becomes the admin. Admins manage users from the **
 > Then open sign-up from the **Users** page if you want it.
 
 ## Features
-- **Collections** (one per craft) hold **material types** (own unit and custom text/number/dropdown fields) which hold **items** (colour swatch, optional photo, variant, stock, price, location, low-stock level).
+- **Collections** (one per craft) hold **material types** (own unit and custom text/number/dropdown fields) which hold **items** (colour swatch, optional photo, variant, stock, price, location, low-stock level). An item can be **split across several storage places**: use or add stock at a particular place, or move some between places (CSV export shows the main location and the total).
 - Search a collection for any text or one field (`Width:150`), sort, export or **import CSV** (with a check-only mode), see the **activity** history and undo stock changes.
 - **Shopping list** across every collection you can use: out of stock, low, or short for a project. Assigning more than you have is allowed and the gap lands on the list.
 - **Projects**: reserve supplies, numbered steps, attached guides, estimated cost, print layout, duplicate, complete (deducts stock) and reopen (puts it back).

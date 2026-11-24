@@ -435,6 +435,14 @@ def del_pool(pid):
     pool_of(pid, owner=True); purge_photos("p.id=?", pid); run("DELETE FROM pools WHERE id=?", pid)
     return redirect(url_for("home"))
 
+def places_in(pid):
+    """item id -> its extra storage places, for one collection."""
+    out = {}
+    for r in q("""SELECT ip.item_id, ip.place, ip.qty FROM item_places ip JOIN items i ON i.id=ip.item_id
+                  JOIN types t ON t.id=i.type_id WHERE t.pool_id=? ORDER BY ip.place COLLATE NOCASE""", pid):
+        out.setdefault(r["item_id"], []).append(r)
+    return out
+
 SORTS = {"name": "name COLLATE NOCASE", "colour": "colour COLLATE NOCASE, name COLLATE NOCASE",
          "low": "qty ASC, name COLLATE NOCASE", "new": "id DESC"}
 
@@ -455,15 +463,16 @@ def pool(pid):
         for i in ids: args += [f'$."{i}"', like(m[2].strip())]
     elif term:
         sql += f""" AND (name {LIKE} OR colour {LIKE} OR subtype {LIKE} OR notes {LIKE} OR location {LIKE}
-                    OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE}))"""
-        args += [like(term)] * 6
+                    OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE})
+                    OR EXISTS(SELECT 1 FROM item_places ip WHERE ip.item_id=stock.id AND ip.place {LIKE}))"""
+        args += [like(term)] * 7
     by_type = {}
     for r in q(sql + " ORDER BY " + SORTS[sort], *args): by_type.setdefault(r["type_id"], []).append(r)
     groups = [(t, fields[t["id"]], by_type.get(t["id"], [])) for t in types
               if not keyed or any(f["label"].lower() == key for f in fields[t["id"]])]
     shares = q("""SELECT u.id, u.username, s.can_edit FROM pool_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.pool_id=? ORDER BY u.username""", pid) if p["is_owner"] else []
-    return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0], sort=sort, impact=pool_impact(pid) if p["is_owner"] else None,
+    return render_template("pool.html", pool=p, groups=groups, places=places_in(pid), term=term, shares=shares, hint=(labels or ["Width"])[0], sort=sort, impact=pool_impact(pid) if p["is_owner"] else None,
                            value=db().execute("SELECT COALESCE(SUM(qty*price),0) FROM stock WHERE pool_id=? AND price IS NOT NULL", (pid,)).fetchone()[0],
                            hexes=[r["hex"] for r in q("SELECT DISTINCT hex FROM stock WHERE pool_id=? AND hex<>'' LIMIT 40", pid)])
 
@@ -636,11 +645,22 @@ def save_item(t, item_id=None):
     price, low = request.form.get("price", "").strip(), request.form.get("low", "").strip()
     vals = (clean("name") or "Unnamed", clean("colour", 60), hexv, clean("subtype", 60), num(request.form.get("qty")),
             num(price) if price else None, num(low) if low else None, clean("location", 80), clean("notes", 1000), json.dumps(extra))
+    places = {}
+    for name, amount in zip(request.form.getlist("place_name"), request.form.getlist("place_qty")):
+        name, n = name.strip()[:80], num(amount)
+        if name and n > 0 and name.lower() != vals[7].lower() and len(places) < 20:
+            key = next((k for k in places if k.lower() == name.lower()), name); places[key] = places.get(key, 0) + n
+    if sum(places.values()) > vals[4] + 1e-9:
+        flash(f"The other places hold {sum(places.values()):g} {t['unit']}, more than the {vals[4]:g} you entered, so the total in stock is now {sum(places.values()):g}.")
+        vals = vals[:4] + (sum(places.values()),) + vals[5:]
     old = db().execute("SELECT qty, photo FROM items WHERE id=?", (item_id,)).fetchone() if item_id else None
     if item_id:
         run("UPDATE items SET name=?,colour=?,hex=?,subtype=?,qty=?,price=?,low_at=?,location=?,notes=?,extra=? WHERE id=?", *vals, item_id)
     else:
         item_id = run("INSERT INTO items(name,colour,hex,subtype,qty,price,low_at,location,notes,extra,type_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", *vals, t["id"]).lastrowid
+    db().execute("DELETE FROM item_places WHERE item_id=?", (item_id,))
+    db().executemany("INSERT INTO item_places(item_id,place,qty) VALUES(?,?,?)", [(item_id, k, v) for k, v in places.items()])
+    db().commit()
     up = request.files.get("photo")
     if up and up.filename:
         name = save_photo(up)
@@ -671,6 +691,7 @@ def item_edit(iid):
     i = item_of(iid, True); t = type_of(i["type_id"], True)
     if request.method == "POST": return save_item(t, iid)
     return render_template("item_form.html", t=t, fields=json.loads(t["fields"]), i=i, proto=None, extra=json.loads(i["extra"]),
+                           places=q("SELECT place, qty FROM item_places WHERE item_id=? ORDER BY place COLLATE NOCASE", iid),
                            used_in=db().execute("SELECT COUNT(*) FROM assignments WHERE item_id=?", (iid,)).fetchone()[0])
 
 @app.post("/items/<int:iid>/delete")
@@ -685,10 +706,45 @@ def safe_next(default):
 @app.post("/items/<int:iid>/adjust")
 def item_adjust(iid):
     i = item_of(iid, True); n = num(request.form.get("amount"))
+    pl = db().execute("SELECT * FROM item_places WHERE item_id=? AND place=?", (iid, request.form.get("place") or "")).fetchone()
     if n > 0:
-        add = request.form.get("action") == "add"; new = max(0.0, i["qty"] + (n if add else -n))
+        add = request.form.get("action") == "add"
+        if pl and not add: n = min(n, pl["qty"])           # can't take more from a place than it holds
+        new = max(0.0, i["qty"] + (n if add else -n))
+        if pl:                                             # change the place first, so the total never drops below the places
+            if add: db().execute("UPDATE item_places SET qty=qty+? WHERE id=?", (n, pl["id"]))
+            else:
+                db().execute("UPDATE item_places SET qty=qty-? WHERE id=?", (n, pl["id"]))
+                db().execute("DELETE FROM item_places WHERE id=? AND qty<1e-9", (pl["id"],))
         run("UPDATE items SET qty=? WHERE id=?", new, iid)
-        log(i["pool_id"], "adjust", f"{'Added' if add else 'Used'} {n:g} {i['unit']} of {i['name']} ({i['qty']:g} to {new:g})", iid, new - i["qty"])
+        where = f" {'to' if add else 'from'} {pl['place']}" if pl else ""
+        log(i["pool_id"], "adjust", f"{'Added' if add else 'Used'} {n:g} {i['unit']} of {i['name']}{where} ({i['qty']:g} to {new:g})", iid, new - i["qty"])
+    return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
+
+@app.post("/items/<int:iid>/move")
+def item_move(iid):
+    """Move some stock from one place to another (the main location is the empty name). The total doesn't change."""
+    i = item_of(iid, True); n = num(request.form.get("amount"))
+    src, dst = (request.form.get("from") or "").strip()[:80], (request.form.get("to") or "").strip()[:80]
+    if dst.lower() in ((i["location"] or "").lower(), "main", "main location"): dst = ""
+    if src.lower() == (i["location"] or "").lower(): src = ""
+    places = {r["place"].lower(): r for r in q("SELECT * FROM item_places WHERE item_id=?", iid)}
+    have = places[src.lower()]["qty"] if src else i["qty"] - sum(r["qty"] for r in places.values())
+    if src and src.lower() not in places: flash("That place doesn't hold any of this item.")
+    elif n <= 0 or src.lower() == dst.lower(): flash("Choose an amount and two different places.")
+    elif n > have + 1e-9: flash(f"{src or i['location'] or 'The main location'} only has {max(have, 0):g} {i['unit']}.")
+    elif not src and not dst: pass
+    else:
+        d = db()
+        if src:
+            d.execute("UPDATE item_places SET qty=qty-? WHERE id=?", (n, places[src.lower()]["id"]))
+            d.execute("DELETE FROM item_places WHERE id=? AND qty<1e-9", (places[src.lower()]["id"],))
+        if dst:
+            if dst.lower() not in places and len(places) >= 20: d.rollback(); flash("An item can be in at most 20 other places."); return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
+            d.execute("""INSERT INTO item_places(item_id,place,qty) VALUES(?,?,?)
+                         ON CONFLICT(item_id,place) DO UPDATE SET qty=qty+excluded.qty""", (iid, dst, n))
+        log(i["pool_id"], "move", f"Moved {n:g} {i['unit']} of {i['name']} from {src or i['location'] or 'main location'} to {dst or i['location'] or 'main location'}", iid, commit=False)
+        d.commit()
     return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
 
 @app.get("/photos/<int:iid>")
