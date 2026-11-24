@@ -63,6 +63,10 @@ def start_snapshots(data_dir, keep):
 def _check_db(path):
     c = sqlite3.connect(path)
     try:
+        # Craft Stash never creates virtual tables (FTS5 and the like). Refuse a file that has them before anything
+        # else reads it: a crafted FTS5 index can overflow SQLite's buffers (CVE-2026-119373, CVE-2026-119374).
+        if c.execute("SELECT 1 FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%' COLLATE NOCASE").fetchone():
+            raise SystemExit("That file has tables Craft Stash never makes (virtual tables), so it was not restored.")
         ok = c.execute("PRAGMA integrity_check").fetchone()[0] == "ok" and c.execute("SELECT 1 FROM sqlite_master WHERE name='users'").fetchone()
     except sqlite3.DatabaseError: ok = False
     finally: c.close()
