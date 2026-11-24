@@ -3,6 +3,11 @@ import csv, io, json, math, re, secrets
 import dbx
 
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
+# The item columns an import may write. Column names in the SQL come only from here, never from the CSV header.
+ITEM_COLUMNS = frozenset({"type_id", "name", "colour", "hex", "subtype", "qty", "price", "low_at", "location", "notes", "extra"})
+def column(k):
+    if k not in ITEM_COLUMNS: raise ValueError(f"not an item column: {k!r}")
+    return k
 CANON = {"material type": "type", "type": "type", "material": "type", "name": "name", "item": "name",
          "colour": "colour", "color": "colour", "variant": "subtype", "in stock": "qty", "stock": "qty",
          "qty": "qty", "quantity": "qty", "unit": "unit", "price per unit": "price", "price": "price",
@@ -98,12 +103,12 @@ def run_import(d, pool_id, text, update=True, default_type="Imported"):
                         (t["id"], name, colour)).fetchone() if update else None
         if old:
             extra = json.loads(old["extra"]); extra.update(ex); vals["extra"] = json.dumps(extra)
-            d.execute("UPDATE items SET " + ",".join(f"{k}=?" for k in vals) + " WHERE id=?", [*vals.values(), old["id"]])
+            d.execute("UPDATE items SET " + ",".join(f"{column(k)}=?" for k in vals) + " WHERE id=?", [*vals.values(), old["id"]])
             dbx.fit_places(d, old["id"])
             res["updated"] += 1
         else:
             vals.update(type_id=t["id"], name=name, colour=colour, extra=json.dumps(ex))
-            d.execute("INSERT INTO items(" + ",".join(vals) + ") VALUES(" + ",".join("?" * len(vals)) + ")", list(vals.values()))
+            d.execute("INSERT INTO items(" + ",".join(map(column, vals)) + ") VALUES(" + ",".join("?" * len(vals)) + ")", list(vals.values()))
             res["added"] += 1
     for t in types.values():
         if t["dirty"]: d.execute("UPDATE types SET fields=? WHERE id=?", (json.dumps(t["fl"]), t["id"]))

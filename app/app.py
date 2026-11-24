@@ -1,5 +1,6 @@
 import csv, hashlib, io, json, math, os, re, secrets, shutil, subprocess, sys, tempfile, threading, time, uuid
 from datetime import datetime, timezone
+from types import MappingProxyType
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import (Flask, Response, abort, after_this_request, flash, g, redirect, render_template, request,
@@ -175,8 +176,14 @@ def step_of(sid):
 def find_user():
     return db().execute("SELECT id FROM users WHERE username=?", (clean("username", 40),)).fetchone()
 
-def purge_files(where, *a):
-    for f in q("SELECT f.stored FROM files f JOIN projects p ON p.id=f.project_id WHERE " + where, *a):
+# The purge helpers delete files from disk before their rows go. The scope picks one fixed WHERE clause; nothing
+# from a request ever becomes SQL text.
+FILE_SCOPES = MappingProxyType({"user": "p.user_id=?", "project": "p.id=?"})
+PHOTO_SCOPES = MappingProxyType({"user": "p.user_id=?", "pool": "p.id=?", "type": "t.id=?", "item": "i.id=?"})
+STEP_PHOTO_SCOPES = MappingProxyType({"user": "p.user_id=?", "project": "p.id=?", "step": "s.id=?"})
+
+def purge_files(scope, id):
+    for f in q("SELECT f.stored FROM files f JOIN projects p ON p.id=f.project_id WHERE " + FILE_SCOPES[scope], id):
         (UPLOADS / f["stored"]).unlink(missing_ok=True)
 
 def pwv(h): return hashlib.sha256(h.encode()).hexdigest()[:16]   # changes with the password, which signs out other sessions
@@ -195,12 +202,12 @@ def log(pool_id, kind, text, item_id=None, delta=None, commit=True):
                  (g.user["id"] if getattr(g, "user", None) else None, pool_id, item_id, kind, text[:300], delta))
     if commit: db().commit()
 
-def purge_photos(where, *a):
+def purge_photos(scope, id):
     for r in q("""SELECT i.photo FROM items i JOIN types t ON t.id=i.type_id JOIN pools p ON p.id=t.pool_id
-                  WHERE i.photo<>'' AND """ + where, *a): (PHOTOS / r["photo"]).unlink(missing_ok=True)
+                  WHERE i.photo<>'' AND """ + PHOTO_SCOPES[scope], id): (PHOTOS / r["photo"]).unlink(missing_ok=True)
 
-def purge_step_photos(where, *a):   # where is on p (projects) and s (steps)
-    for r in q("SELECT sp.stored FROM step_photos sp JOIN steps s ON s.id=sp.step_id JOIN projects p ON p.id=s.project_id WHERE " + where, *a):
+def purge_step_photos(scope, id):
+    for r in q("SELECT sp.stored FROM step_photos sp JOIN steps s ON s.id=sp.step_id JOIN projects p ON p.id=s.project_id WHERE " + STEP_PHOTO_SCOPES[scope], id):
         (PHOTOS / r["stored"]).unlink(missing_ok=True)
 
 def drop_reservations(pool_id, user_id):   # someone lost access to a collection: their open reservations on it go too
@@ -492,7 +499,7 @@ def admin_delete(id):
     admin_only(); get("SELECT 1 FROM users WHERE id=?", id)
     if id == uid(): flash("You can't delete yourself.")
     else:
-        purge_files("p.user_id=?", id); purge_photos("p.user_id=?", id); purge_step_photos("p.user_id=?", id); run("DELETE FROM users WHERE id=?", id)
+        purge_files("user", id); purge_photos("user", id); purge_step_photos("user", id); run("DELETE FROM users WHERE id=?", id)
     return redirect(url_for("admin"))
 
 SET_SETTING = dbx.upsert("settings", ["key", "value"], ["key"], {"value": "excluded.value"})
@@ -607,7 +614,7 @@ def new_pool():
 
 @app.post("/collections/<int:pid>/delete")
 def del_pool(pid):
-    pool_of(pid, owner=True); purge_photos("p.id=?", pid); run("DELETE FROM pools WHERE id=?", pid)
+    pool_of(pid, owner=True); purge_photos("pool", pid); run("DELETE FROM pools WHERE id=?", pid)
     return redirect(url_for("home"))
 
 def places_in(pid):
@@ -618,8 +625,8 @@ def places_in(pid):
         out.setdefault(r["item_id"], []).append(r)
     return out
 
-SORTS = {"name": "name COLLATE NOCASE", "colour": "colour COLLATE NOCASE, name COLLATE NOCASE",
-         "low": "qty ASC, name COLLATE NOCASE", "new": "id DESC"}
+SORTS = MappingProxyType({"name": "name COLLATE NOCASE", "colour": "colour COLLATE NOCASE, name COLLATE NOCASE",
+                          "low": "qty ASC, name COLLATE NOCASE", "new": "id DESC"})   # ?sort= picks one; anything else is "name"
 
 def match(term, fields):
     """SQL condition (on a stock row) for a search term. fields maps type id -> field list.
@@ -630,6 +637,7 @@ def match(term, fields):
     if m and key in {l.lower() for l in labels}:   # "Width:150" filters that field
         ids = [f["id"] for fl in fields.values() for f in fl if f["label"].lower() == key]   # ids are unique per field
         args = []
+        ids = [i for i in ids if dbx.JSON_KEY.fullmatch(str(i))] or ["-"]   # field ids are the app's own (f + hex)
         for i in ids: args += [dbx.json_key(i), like(m[2].strip())]
         return "(" + " OR ".join([f"{dbx.json_get('stock.extra')} {LIKE}"] * len(ids)) + ")", args, key
     return (f"""(stock.name {LIKE} OR stock.colour {LIKE} OR stock.subtype {LIKE} OR stock.notes {LIKE} OR stock.location {LIKE}
@@ -807,7 +815,7 @@ def new_type(pid):
 
 @app.post("/types/<int:tid>/delete")
 def del_type(tid):
-    t = type_of(tid, True); purge_photos("t.id=?", tid); run("DELETE FROM types WHERE id=?", tid)
+    t = type_of(tid, True); purge_photos("type", tid); run("DELETE FROM types WHERE id=?", tid)
     return redirect(url_for("pool", pid=t["pool_id"]))
 
 @app.get("/types/<int:tid>/fields")
@@ -916,7 +924,7 @@ def item_edit(iid):
 
 @app.post("/items/<int:iid>/delete")
 def item_del(iid):
-    i = item_of(iid, True); purge_photos("i.id=?", iid); run("DELETE FROM items WHERE id=?", iid); log(i["pool_id"], "delete", f"Deleted {i['name']}")
+    i = item_of(iid, True); purge_photos("item", iid); run("DELETE FROM items WHERE id=?", iid); log(i["pool_id"], "delete", f"Deleted {i['name']}")
     return redirect(url_for("pool", pid=i["pool_id"]))
 
 def safe_next(default):
@@ -1225,7 +1233,7 @@ def leave_project(id):
 
 @app.post("/projects/<int:id>/delete")
 def del_project(id):
-    project_of(id, True); purge_files("p.id=?", id); purge_step_photos("p.id=?", id); run("DELETE FROM projects WHERE id=?", id)
+    project_of(id, True); purge_files("project", id); purge_step_photos("project", id); run("DELETE FROM projects WHERE id=?", id)
     return redirect(url_for("projects"))
 
 @app.post("/projects/<int:id>/share")
@@ -1301,7 +1309,7 @@ def step_photo_delete(pid):
 
 @app.post("/steps/<int:sid>/delete")
 def delete_step(sid):
-    s = step_of(sid); purge_step_photos("s.id=?", sid); run("DELETE FROM steps WHERE id=?", sid)
+    s = step_of(sid); purge_step_photos("step", sid); run("DELETE FROM steps WHERE id=?", sid)
     return redirect(url_for("project", id=s["project_id"]) + "#steps")
 
 @app.post("/steps/<int:sid>/move")

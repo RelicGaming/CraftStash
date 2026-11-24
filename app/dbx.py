@@ -304,29 +304,47 @@ def _connect_server(cfg):
     raise SystemExit(f"Database type {cfg.engine} isn't supported yet.")
 
 # ---------------------------------------------------------------- engine-specific SQL helpers
+# These build SQL text, so everything they put into it is checked: identifiers against IDENT, small expressions
+# against EXPR, JSON keys against JSON_KEY. Values always travel as bound parameters, never in the text.
+IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?")
+EXPR = re.compile(r"[A-Za-z0-9_.?+\-* ]{1,80}")
+JSON_KEY = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+def ident(name):
+    if not isinstance(name, str) or not IDENT.fullmatch(name): raise ValueError(f"not a plain SQL identifier: {name!r}")
+    return name
+
+def expr(text):
+    if not isinstance(text, str) or not EXPR.fullmatch(text): raise ValueError(f"not a simple SQL expression: {text!r}")
+    return text
+
 def like_op():
     """`<expr> LIKE ?` that ignores case and treats ! as the escape character, on every engine."""
     if engine() == "postgres": return """COLLATE "default" ILIKE ? ESCAPE '!'"""
     if engine() == "mysql": return "COLLATE utf8mb4_unicode_ci LIKE ? ESCAPE '!'"
     return "LIKE ? ESCAPE '!'"
 
-def ci(expr):
+def ci(e):
     """An expression that sorts and compares ignoring case."""
-    return f"{expr} COLLATE NOCASE"
+    return f"{ident(e)} COLLATE NOCASE"
 
 def json_key(key):
     """The parameter that names one key of a JSON object column, for json_get and json_drop."""
     key = str(key)
-    return key if engine() == "postgres" else '$."' + key.replace('"', "") + '"'
+    if not JSON_KEY.fullmatch(key): raise ValueError(f"not a field id: {key!r}")
+    return key if engine() == "postgres" else '$."' + key + '"'
 
 def json_get(col):
     """SQL for one value (as text) of a JSON object column; takes one parameter, json_key(...)."""
+    ident(col)
     if engine() == "postgres": return f"(({col})::jsonb ->> ?)"
     if engine() == "mysql": return f"JSON_UNQUOTE(JSON_EXTRACT({col}, ?))"
     return f"json_extract({col}, ?)"
 
 def json_has(col, op):
     """SQL that is true when any value of a JSON object column matches `op` (e.g. like_op()), which takes the parameters."""
+    ident(col)
+    if op != like_op(): raise ValueError("json_has takes like_op()")
     if engine() == "postgres": return f"EXISTS(SELECT 1 FROM jsonb_each_text(({col})::jsonb) AS je WHERE je.value {op})"
     if engine() == "mysql":
         return f"EXISTS(SELECT 1 FROM JSON_TABLE({col}, '$.*' COLUMNS(value TEXT PATH '$')) AS je WHERE je.value {op})"
@@ -334,26 +352,31 @@ def json_has(col, op):
 
 def json_drop(col):
     """SQL for a JSON object column without one key; takes one parameter, json_key(...)."""
+    ident(col)
     if engine() == "postgres": return f"((({col})::jsonb - ?)::text)"
     if engine() == "mysql": return f"JSON_REMOVE({col}, ?)"
     return f"json_remove({col}, ?)"
 
-def group_concat_distinct(expr):
-    """The distinct values of expr joined with commas (NULL when there are none)."""
-    if engine() == "postgres": return f"string_agg(DISTINCT {expr}, ',')"
-    if engine() == "mysql": return f"GROUP_CONCAT(DISTINCT {expr} SEPARATOR ',')"
-    return f"group_concat(DISTINCT {expr})"
+def group_concat_distinct(col):
+    """The distinct values of a column joined with commas (NULL when there are none)."""
+    ident(col)
+    if engine() == "postgres": return f"string_agg(DISTINCT {col}, ',')"
+    if engine() == "mysql": return f"GROUP_CONCAT(DISTINCT {col} SEPARATOR ',')"
+    return f"group_concat(DISTINCT {col})"
 
 def greatest(a, b):
+    expr(a); expr(b)
     return f"MAX({a}, {b})" if engine() == "sqlite" else f"GREATEST({a}, {b})"
 
 def upsert(table, cols, keys, update):
     """INSERT ... that updates on a duplicate key. update maps column -> expression, where excluded.<col> is the new value."""
+    ident(table); [ident(c) for c in [*cols, *keys, *update]]; [expr(e) for e in update.values()]
     vals = ",".join("?" * len(cols))
     sets = ", ".join(f"{c}={e}" for c, e in update.items())
     return f"INSERT INTO {table}({','.join(cols)}) VALUES({vals}) ON CONFLICT({','.join(keys)}) DO UPDATE SET {sets}"
 
 def insert_ignore(table, cols):
+    ident(table); [ident(c) for c in cols]
     return f"INSERT OR IGNORE INTO {table}({','.join(cols)}) VALUES({','.join('?' * len(cols))})"
 
 def now():
