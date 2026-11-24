@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block title %}{% if term %}{{ term }} - {% endif %}Search - Craft Stash{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Search everything</h1></div>
+<form class="inline" method="get" action="{{ url_for('search') }}" role="search"><div class="search"><svg class="i"><use href="#i-search"/></svg>
+<input name="q" type="search" value="{{ term }}" maxlength="100" placeholder="Supplies and projects in every collection" aria-label="Search all collections" {{ 'autofocus' if not term }}></div>
+<button class="btn">Search</button></form>
+<p class="muted small" style="margin:8px 0 20px">Covers names, colours, notes, locations and custom fields in all your collections, including ones shared with you. Use Label:value to search one field.</p>
+{% if term %}
+{% if projects %}<section class="panel"><div class="panel-head"><h2>Projects</h2></div>
+{% for p in projects %}<div class="list-row"><div class="grow"><a href="{{ url_for('project', id=p.id) }}"><strong>{{ p.name }}</strong></a>{% if p.user_id != g.user.id %} <span class="muted small">from {{ p.owner }}</span>{% endif %}</div>
+<span class="pill {{ {'active':'accent','done':'ok'}.get(p.status,'') }}">{{ p.status|capitalize }}</span></div>{% endfor %}</section>{% endif %}
+{% set ns = namespace(pid=None) %}
+{% for i in items %}{% set x = i.extra|fromjson %}
+{% if i.pool_id != ns.pid %}{% if ns.pid is not none %}</section>{% endif %}{% set ns.pid = i.pool_id %}
+<section class="panel"><div class="panel-head"><h2><a href="{{ url_for('pool', pid=i.pool_id, q=term) }}">{{ i.pname }}</a></h2>{% if not i.is_owner %}<span class="pill">from {{ i.owner }}</span>{% endif %}</div>{% endif %}
+<div class="list-row"><span class="sw-dot{{ '' if i.hex else ' none' }}" {% if i.hex %}style="--c:{{ i.hex }}"{% endif %}></span>
+<div class="grow">{% if i.can_edit %}<a href="{{ url_for('item_edit', iid=i.id) }}"><strong>{{ i.name }}</strong></a>{% else %}<strong>{{ i.name }}</strong>{% endif %}{% if i.colour %} <span class="muted">{{ i.colour }}</span>{% endif %}
+<div class="item-sub"><span>{{ i.tname }}</span>{% if i.subtype %}<span>{{ i.subtype }}</span>{% endif %}
+{% for f in fields.get(i.type_id, []) if x.get(f.id) %}<span class="chip"><b>{{ f.label }}</b>{{ x.get(f.id) }}</span>{% endfor %}
+{% if i.location %}<span class="chip"><svg class="i"><use href="#i-pin"/></svg>{{ i.location }}</span>{% endif %}</div></div>
+<div style="text-align:right"><strong>{{ '%g'|format(i.qty) }}</strong> {{ i.unit }}{% if i.free < i.qty and i.free >= 0 %}<div class="muted small">{{ '%g'|format(i.free) }} free</div>{% elif i.free < 0 %}<div class="small"><span class="pill bad">Short by {{ '%g'|format(-i.free) }}</span></div>{% endif %}</div></div>
+{% if loop.last %}</section>{% endif %}
+{% endfor %}
+{% if more %}<p class="muted small">Showing the first {{ limit }} supplies. Add more words to narrow it down.</p>{% endif %}
+{% if not items and not projects %}<div class="panel stitch"><h3>Nothing found</h3><p class="muted">Nothing in your collections or projects matches “{{ term }}”.</p></div>{% endif %}
+{% endif %}
+{% endblock %}

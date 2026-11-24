@@ -25,6 +25,7 @@
 <a href="{{ url_for('shopping') }}" {% if ep == 'shopping' %}aria-current="page"{% endif %}>Shopping list{% if shop_count %}<span class="pill warn count">{{ shop_count }}</span>{% endif %}</a>
 {% if g.user.is_admin %}<a href="{{ url_for('admin') }}" {% if ep == 'admin' %}aria-current="page"{% endif %}>Users</a>{% endif %}</nav>
 <div class="me"><a class="who" href="{{ url_for('account') }}" title="Your account"><span class="avatar" style="--h:{{ (g.user.id * 67) % 360 }}">{{ g.user.username[0]|upper }}</span><span class="small hide-m">{{ g.user.username }}</span></a>
+<a class="btn ghost sm" href="{{ url_for('search') }}" title="Search everything" {% if ep == 'search' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-search"/></svg><span class="hide-m">Search</span></a>
 <a class="btn ghost sm" href="{{ url_for('appearance') }}" title="Appearance"><svg class="i"><use href="#i-palette"/></svg><span class="hide-m">Theme</span></a>
 <form method="post" action="{{ url_for('logout') }}">{{ csrf }}<button class="btn ghost sm" title="Log out"><svg class="i"><use href="#i-out"/></svg><span class="hide-m">Log out</span></button></form></div>
 </div></header>{% endif %}

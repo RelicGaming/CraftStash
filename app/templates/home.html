@@ -4,6 +4,8 @@
 {% set mine = pools|selectattr('is_owner')|list %}{% set shared = pools|rejectattr('is_owner')|list %}
 <div class="page-head"><h1>Your collections</h1></div>
 <p class="muted" style="margin-top:-8px;margin-bottom:18px">One collection for each craft, like Knitting or Quilting. Each holds that craft's supplies.</p>
+{% if pools %}<form class="inline" method="get" action="{{ url_for('search') }}" role="search" style="margin-bottom:20px"><div class="search"><svg class="i"><use href="#i-search"/></svg>
+<input name="q" type="search" maxlength="100" placeholder="Search every collection" aria-label="Search all collections"></div><button class="btn secondary">Search</button></form>{% endif %}
 <div class="tiles">
 {% for p in mine %}<a class="tile" href="{{ url_for('pool', pid=p.id) }}">{{ strip(p.hexes) }}
 <div class="tile-body"><h3>{{ p.name }}</h3>{% if p.craft %}<span class="muted small">{{ p.craft }}</span>{% endif %}
