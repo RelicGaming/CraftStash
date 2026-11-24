@@ -597,7 +597,7 @@ def main():
     global JSON_LINES
     fast = bool(os.environ.get("SELFTEST_FAST"))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", help="where to write report.html and report.json (default: <DATA_DIR>/selftest or ./selftest-report)")
+    ap.add_argument("--out", help="where to write report.html and report.json (default: SELFTEST_DIR, <DATA_DIR>/selftest or ./selftest-report)")
     ap.add_argument("--only", help="run only checks whose area/name contains this text")
     ap.add_argument("--perf-runs", type=int, default=2 if fast else 5, help="requests per page in the load-time pass")
     ap.add_argument("--perf-items", type=int, default=20 if fast else 200, help="items to seed for the load-time pass")
@@ -609,7 +609,8 @@ def main():
     ap.add_argument("--json-lines", action="store_true", help="machine-readable progress (used by the in-app page)")
     ap.add_argument("--keep", action="store_true", help="keep the temporary database and server log")
     a = ap.parse_args(); JSON_LINES = a.json_lines
-    out = Path(a.out) if a.out else (Path(os.environ["DATA_DIR"]) / "selftest" if os.environ.get("DATA_DIR") else Path("selftest-report")); out.mkdir(parents=True, exist_ok=True)
+    default = (os.environ.get("SELFTEST_DIR") or "").strip() or (str(Path(os.environ["DATA_DIR"]) / "selftest") if os.environ.get("DATA_DIR") else "selftest-report")
+    out = Path(a.out or default); out.mkdir(parents=True, exist_ok=True)
     sandbox = Path(tempfile.mkdtemp(prefix="craftstash-selftest-")); started = datetime.now(timezone.utc); t_all = time.perf_counter()
     chosen = [c for c in CHECKS if not a.only or a.only.lower() in f"{c[0]} {c[1]}".lower()]
     proc = None; d = {"checks": [], "perf": [], "browser": None, "budget_ms": a.budget_ms}

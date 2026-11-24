@@ -48,3 +48,11 @@ def test_startup_summary_never_shows_secrets(make_env, capsys):
 def test_secret_key_file(make_env, tmp_path_factory):
     f = tmp_path_factory.mktemp("s") / "key"; f.write_text("from-a-file\n")
     assert make_env(SECRET_KEY_FILE=f).mod.app.secret_key == "from-a-file"
+
+def test_readme_links_resolve():
+    """Every #anchor in the README has a heading (or id) to land on, and every relative link points at a real file."""
+    text = (ROOT / "README.md").read_text()
+    def slug(h): return re.sub(r"[^\w\- ]", "", h.strip().lower()).replace(" ", "-")
+    anchors = {slug(m[1]) for m in re.finditer(r"^#{1,6} (.+)$", text, re.M)} | set(re.findall(r'id="([^"]+)"', text))
+    for target in re.findall(r"\]\(#([^)]+)\)", text): assert target in anchors, f"README links to #{target}, which isn't there"
+    for target in re.findall(r"\]\((?!https?:|#)([^)#]+)", text): assert (ROOT / target).exists(), f"README links to {target}, which doesn't exist"
