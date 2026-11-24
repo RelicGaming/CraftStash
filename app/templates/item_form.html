@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block title %}{{ 'Edit ' ~ i.name if i else 'Add item' }} - Craft Stash{% endblock %}
 {% block body %}
 {% set src = i or proto %}
-<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>Back to collection</a>
+<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>{{ t.pool_name }}</a>
 <div class="page-head"><h1>{{ 'Edit ' ~ i.name if i else 'Add ' ~ t.name|lower }}</h1><span class="grow"></span>
 {% if i %}<div class="actions"><a class="btn secondary sm" href="{{ url_for('item_new', tid=t.id, copy=i.id) }}">Duplicate</a></div>{% endif %}</div>
 {% if proto %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Copied from {{ proto.name }}. Change what differs, like the colour, and save.</span></div>{% endif %}

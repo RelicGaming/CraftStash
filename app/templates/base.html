@@ -9,7 +9,7 @@
 <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
 <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
 <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
-<symbol id="i-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol><symbol id="i-cart" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L22 7H6"/></symbol><symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol><symbol id="i-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
 <symbol id="i-file" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2Z"/><path d="M14 2v6h6"/></symbol>
 <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
@@ -17,17 +17,20 @@
 <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".6"/><circle cx="17.5" cy="10.5" r=".6"/><circle cx="8.5" cy="7.5" r=".6"/><circle cx="6.5" cy="12.5" r=".6"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.83-.44-1.12-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.55-2.5 5.55-5.55C21.97 6.01 17.46 2 12 2Z"/></symbol>
 </defs></svg>
 {% if g.user %}{% set ep = request.endpoint or '' %}
+{% set section = 'collections' if ep in ('home','pool','item_new','item_edit','type_fields','activity','import_csv') else 'projects' if ep in ('projects','project','finish') else ep if ep in ('shopping','search') else 'me' if ep in ('account','appearance','admin','selftest_page') else '' %}
 <header class="top"><div class="top-in">
-<a class="brand" href="{{ url_for('home') }}"><span class="logo"><svg class="i"><use href="#i-logo"/></svg></span>Craft Stash</a>
+<a class="brand" href="{{ url_for('home') }}" aria-label="Craft Stash home"><span class="logo"><svg class="i"><use href="#i-logo"/></svg></span><span class="brand-text">Craft Stash</span></a>
 <nav class="tabs" aria-label="Main">
-<a href="{{ url_for('home') }}" {% if ep in ('home','pool','item_new','item_edit','type_fields') %}aria-current="page"{% endif %}>Collections</a>
-<a href="{{ url_for('projects') }}" {% if ep in ('projects','project','finish') %}aria-current="page"{% endif %}>Projects</a>
-<a href="{{ url_for('shopping') }}" {% if ep == 'shopping' %}aria-current="page"{% endif %}>Shopping list{% if shop_count %}<span class="pill warn count">{{ shop_count }}</span>{% endif %}</a>
-{% if g.user.is_admin %}<a href="{{ url_for('admin') }}" {% if ep == 'admin' %}aria-current="page"{% endif %}>Users</a>{% endif %}</nav>
-<div class="me"><a class="who" href="{{ url_for('account') }}" title="Your account"><span class="avatar" style="--h:{{ (g.user.id * 67) % 360 }}">{{ g.user.username[0]|upper }}</span><span class="small hide-m">{{ g.user.username }}</span></a>
-<a class="btn ghost sm" href="{{ url_for('search') }}" title="Search everything" {% if ep == 'search' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-search"/></svg><span class="hide-m">Search</span></a>
-<a class="btn ghost sm" href="{{ url_for('appearance') }}" title="Appearance"><svg class="i"><use href="#i-palette"/></svg><span class="hide-m">Theme</span></a>
-<form method="post" action="{{ url_for('logout') }}">{{ csrf }}<button class="btn ghost sm" title="Log out"><svg class="i"><use href="#i-out"/></svg><span class="hide-m">Log out</span></button></form></div>
+<a href="{{ url_for('home') }}" {% if section == 'collections' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-box"/></svg><span>Collections</span></a>
+<a href="{{ url_for('projects') }}" {% if section == 'projects' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-file"/></svg><span>Projects</span></a>
+<a href="{{ url_for('shopping') }}" {% if section == 'shopping' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-cart"/></svg><span>Shopping</span>{% if shop_count %}<span class="pill warn count" aria-label="{{ shop_count }} to buy">{{ shop_count }}</span>{% endif %}</a>
+<a href="{{ url_for('search') }}" {% if section == 'search' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-search"/></svg><span>Search</span></a></nav>
+<details class="menu me"><summary class="who{{ ' current' if section == 'me' }}" aria-label="Account menu"><span class="avatar" style="--h:{{ (g.user.id * 67) % 360 }}">{{ g.user.username[0]|upper }}</span><span class="small hide-m">{{ g.user.username }}</span><svg class="i chev"><use href="#i-chev-d"/></svg></summary>
+<div class="menu-list" role="menu"><div class="menu-who muted small">Signed in as <strong>{{ g.user.username }}</strong></div>
+<a role="menuitem" href="{{ url_for('account') }}" {% if ep == 'account' %}aria-current="page"{% endif %}>Account and API tokens</a>
+<a role="menuitem" href="{{ url_for('appearance') }}" {% if ep == 'appearance' %}aria-current="page"{% endif %}>Appearance</a>
+{% if g.user.is_admin %}<a role="menuitem" href="{{ url_for('admin') }}" {% if ep in ('admin','selftest_page') %}aria-current="page"{% endif %}>Admin</a>{% endif %}
+<form method="post" action="{{ url_for('logout') }}">{{ csrf }}<button role="menuitem" class="danger-text">Log out</button></form></div></details>
 </div></header>{% endif %}
 <main class="wrap">{% for m in get_flashed_messages() %}<div class="notice" role="status"><svg class="i"><use href="#i-info"/></svg><span>{{ m }}</span></div>{% endfor %}
 {% block body %}{% endblock %}</main></body></html>

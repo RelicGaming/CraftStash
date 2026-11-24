@@ -94,8 +94,8 @@ def pool_of(pid, write=False, owner=False):
                   WHERE p.id=? AND a.user_id=?""" + cond, pid, uid())
 
 def type_of(tid, write=False):
-    return get("""SELECT t.*, a.can_edit FROM types t JOIN access a ON a.pool_id=t.pool_id
-                  WHERE t.id=? AND a.user_id=?""" + (" AND a.can_edit=1" if write else ""), tid, uid())
+    return get("""SELECT t.*, a.can_edit, p.name AS pool_name FROM types t JOIN access a ON a.pool_id=t.pool_id
+                  JOIN pools p ON p.id=t.pool_id WHERE t.id=? AND a.user_id=?""" + (" AND a.can_edit=1" if write else ""), tid, uid())
 
 def item_of(iid, write=False):
     return get("""SELECT s.* FROM stock s JOIN access a ON a.pool_id=s.pool_id

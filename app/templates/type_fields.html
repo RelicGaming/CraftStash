@@ -1,9 +1,9 @@
-{% extends "base.html" %}{% block title %}{{ t.name }} fields - Craft Stash{% endblock %}
+{% extends "base.html" %}{% block title %}Edit {{ t.name }} - Craft Stash{% endblock %}
 {% block body %}
-<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>Back to collection</a>
+<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}"><svg class="i"><use href="#i-chev-l"/></svg>{{ t.pool_name }}</a>
 <div class="page-head"><h1>{{ t.name }}</h1><span class="pill">{{ t.unit }}</span><span class="grow"></span>
 <div class="actions"><a class="btn sm" href="{{ url_for('item_new', tid=t.id) }}"><svg class="i"><use href="#i-plus"/></svg>Add {{ t.name|lower }}</a></div></div>
-<form class="panel" method="post" action="{{ url_for('update_type', tid=t.id) }}">{{ csrf }}<div class="panel-head"><h2>Type details</h2></div>
+<form class="panel" method="post" action="{{ url_for('update_type', tid=t.id) }}">{{ csrf }}<div class="panel-head"><div><h2>Name and unit</h2><p class="muted small" style="margin:2px 0 0">{{ t.name }} is a material type in {{ t.pool_name }}.</p></div></div>
 <div class="inline"><input name="name" value="{{ t.name }}" required maxlength="60" aria-label="Type name"><input name="unit" value="{{ t.unit }}" maxlength="20" placeholder="Unit" aria-label="Unit"><button class="btn secondary">Save</button></div></form>
 <section class="panel"><div class="panel-head"><div><h2>Custom fields</h2><p class="muted small" style="margin:2px 0 0">Every {{ t.name|lower }} item gets these fields, and they're searchable. Renaming keeps the data. Deleting a field removes its values.</p></div></div>
 {% for f in fields %}<form class="inline" style="padding:8px 0" method="post" action="{{ url_for('update_field', tid=t.id, fid=f.id) }}">{{ csrf }}
