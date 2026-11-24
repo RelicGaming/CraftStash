@@ -30,6 +30,7 @@ services:
       PHOTOS_DIR: "${PHOTOS_DIR:-}"           # item and step photos         e.g. /photos
       BACKUP_DIR: "${BACKUP_DIR:-}"           # daily snapshots              e.g. /backups
       TMP_DIR: "${TMP_DIR:-}"                 # uploads while they arrive, backup zips (default /data/tmp)
+      SELFTEST_DIR: "${SELFTEST_DIR:-}"       # self-test reports (default /data/selftest)
       CHOWN: "${CHOWN:-auto}"                 # auto | always | never (never for NAS shares with their own permissions)
       # Database: SQLite in /data unless one of these points at an external server (see "Database" in the README).
       DATABASE_URL: "${DATABASE_URL:-}"       # e.g. postgresql://craftstash:secret@postgres:5432/craftstash or mysql://...:3306/...

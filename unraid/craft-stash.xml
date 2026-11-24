@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>craft-stash</Name>
+  <Repository>ghcr.io/relicgaming/craftstash:latest</Repository>
+  <Registry>https://github.com/RelicGaming/CraftStash/pkgs/container/craftstash</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/RelicGaming/CraftStash/issues</Support>
+  <Project>https://github.com/RelicGaming/CraftStash</Project>
+  <Overview>Craft Stash keeps track of your craft supplies (yarn, fabric, beads, paint...), what each project needs, and what to buy. Self-hosted, multi-user, with a JSON API for Home Assistant.[br][br]Photos, uploaded files and backups each get their own folder below, so they can live on the array while the database stays in appdata on the cache. Nothing is written inside the container (the Docker vdisk). Uses SQLite by default; set DATABASE_URL to use PostgreSQL or MariaDB instead. The first account you create is the admin.</Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/RelicGaming/CraftStash/main/unraid/craft-stash.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/RelicGaming/CraftStash/main/unraid/icon.png</Icon>
+  <ExtraParams>--memory=384m --log-opt max-size=10m --log-opt max-file=3</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+
+  <Config Name="Web UI port" Target="8000" Default="8080" Mode="tcp" Description="Port for the web interface. Leave it closed to the internet; put Nginx Proxy Manager or another proxy in front for remote access." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+
+  <Config Name="App data" Target="/data" Default="/mnt/user/appdata/craft-stash" Mode="rw" Description="The database, secret key and temporary files. Keep it on the cache (not a network share)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/craft-stash</Config>
+  <Config Name="Photos" Target="/photos" Default="/mnt/user/craft-stash/photos" Mode="rw" Description="Item and step photos, usually the biggest folder. Any share works." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/craft-stash/photos</Config>
+  <Config Name="Files" Target="/files" Default="/mnt/user/craft-stash/files" Mode="rw" Description="Uploaded patterns and guides." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/craft-stash/files</Config>
+  <Config Name="Backups" Target="/backups" Default="/mnt/user/craft-stash/backups" Mode="rw" Description="Daily database snapshots and safety copies." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/craft-stash/backups</Config>
+
+  <Config Name="PHOTOS_DIR" Target="PHOTOS_DIR" Default="/photos" Mode="" Description="Where the app keeps photos inside the container (matches the Photos path above). Leave as is." Type="Variable" Display="advanced" Required="false" Mask="false">/photos</Config>
+  <Config Name="UPLOADS_DIR" Target="UPLOADS_DIR" Default="/files" Mode="" Description="Where the app keeps uploaded files inside the container (matches the Files path above). Leave as is." Type="Variable" Display="advanced" Required="false" Mask="false">/files</Config>
+  <Config Name="BACKUP_DIR" Target="BACKUP_DIR" Default="/backups" Mode="" Description="Where the app keeps backups inside the container (matches the Backups path above). Leave as is." Type="Variable" Display="advanced" Required="false" Mask="false">/backups</Config>
+
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User that owns the files (99 = nobody on Unraid)." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group that owns the files (100 = users on Unraid)." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+  <Config Name="CHOWN" Target="CHOWN" Default="auto|always|never" Mode="" Description="Fix file ownership at start: auto only where wrong, always everything, never for shares with their own permissions." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+  <Config Name="TZ" Target="TZ" Default="UTC" Mode="" Description="Time zone for the activity log, e.g. Australia/Brisbane." Type="Variable" Display="always" Required="false" Mask="false">UTC</Config>
+
+  <Config Name="TRUST_PROXY" Target="TRUST_PROXY" Default="0|1" Mode="" Description="1 behind Nginx Proxy Manager or another reverse proxy." Type="Variable" Display="always" Required="false" Mask="false">0</Config>
+  <Config Name="TRUSTED_PROXIES" Target="TRUSTED_PROXIES" Default="" Mode="" Description="Only believe proxy headers from these addresses or ranges, e.g. your NPM container's IP or 172.17.0.0/16." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="URL_PREFIX" Target="URL_PREFIX" Default="" Mode="" Description="Serve under a path, e.g. /craft for https://example.com/craft/." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="COOKIE_SECURE" Target="COOKIE_SECURE" Default="auto|1|0" Mode="" Description="auto = secure cookies whenever the request came in over HTTPS." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+  <Config Name="ALLOW_SIGNUP" Target="ALLOW_SIGNUP" Default="1|0" Mode="" Description="Starting default for open sign-up; the Admin page can change it later." Type="Variable" Display="advanced" Required="false" Mask="false">1</Config>
+  <Config Name="MAX_UPLOAD_MB" Target="MAX_UPLOAD_MB" Default="25" Mode="" Description="Largest single upload." Type="Variable" Display="advanced" Required="false" Mask="false">25</Config>
+  <Config Name="USER_QUOTA_MB" Target="USER_QUOTA_MB" Default="500" Mode="" Description="Uploaded files per user, 0 = unlimited." Type="Variable" Display="advanced" Required="false" Mask="false">500</Config>
+  <Config Name="BACKUP_KEEP" Target="BACKUP_KEEP" Default="7" Mode="" Description="Daily database snapshots to keep, 0 = off." Type="Variable" Display="advanced" Required="false" Mask="false">7</Config>
+
+  <Config Name="DATABASE_URL" Target="DATABASE_URL" Default="" Mode="" Description="Empty = SQLite in App data. Or an external database: postgresql://user:pass@192.168.1.20:5432/craftstash or mysql://user:pass@192.168.1.20:3306/craftstash" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="DB_SSLMODE" Target="DB_SSLMODE" Default="" Mode="" Description="TLS to an external database: disable, prefer, require or verify-full." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="SECRET_KEY" Target="SECRET_KEY" Default="" Mode="" Description="Optional. Generated into App data if empty." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>

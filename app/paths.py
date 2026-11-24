@@ -86,7 +86,8 @@ class Paths:
         out = out or sys.stderr
         def gb(n): return "?" if n is None else f"{n / 1e9:.1f} GB free"
         rows = self.report()
-        print("[storage] " + "  ".join(f"{r['key']}={r['path']} ({gb(r['free'])})" for r in rows), file=out, flush=True)
+        def how(r): return {"Own volume or folder": "mapped", "In the data folder": "in data", "Local folder": "local"}.get(r["where"], "NOT MAPPED" if r["unmapped"] else r["where"].lower())
+        print("[storage] " + "  ".join(f"{r['key']}={r['path']} ({how(r)}, {gb(r['free'])})" for r in rows), file=out, flush=True)
         for r in rows:
             if r["unmapped"] and r["key"] != "selftest":
                 print(f"[storage] WARNING: {r['var']}={r['path']} is inside the container, not on a mapped volume. Files written "
