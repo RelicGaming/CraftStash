@@ -11,11 +11,10 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-import backup, importer, migrations, themes
+import backup, importer, migrations, paths, themes
 
-DATA = Path(os.environ.get("DATA_DIR", "/data"))
-UPLOADS = DATA / "uploads"; PHOTOS = UPLOADS / "photos"
-PHOTOS.mkdir(parents=True, exist_ok=True)
+P = paths.Paths(); P.check()        # every folder can be mapped on its own; refuses to start if one is missing or read-only
+DATA, UPLOADS, PHOTOS = P.data, P.uploads, P.photos
 ALLOWED = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt", "md", "doc", "docx", "odt", "xls", "xlsx", "zip"}
 INLINE = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt"}  # everything else downloads
 QUOTA = int(os.environ.get("USER_QUOTA_MB", "500") or 0) * 1024 * 1024
@@ -35,6 +34,7 @@ app.config.update(
 app.jinja_env.filters["fromjson"] = lambda s: json.loads(s or "{}")
 app.jinja_env.filters["money"] = lambda v: f"{currency()}{float(v):,.2f}"
 app.jinja_env.filters["local"] = lambda ts: local_time(ts)
+app.jinja_env.filters["gb"] = lambda n: "?" if n is None else (f"{n / 1e9:,.1f} GB" if n >= 1e9 else f"{n / 1e6:,.0f} MB")
 _hops = int(os.environ.get("TRUST_PROXY", "0") or 0)
 if _hops: app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_hops, x_proto=_hops, x_host=_hops)   # behind Nginx Proxy Manager
 try: TZ = ZoneInfo(os.environ.get("TZ") or "UTC")
@@ -66,9 +66,10 @@ def run(sql, *a):
 def uid(): return g.user["id"]
 
 backup.hold_app_lock(DATA)          # first, so `manage.py restore` refuses to run under a live app
-migrations.run(DATA / "craft.db", (Path(__file__).parent / "schema.sql").read_text())
-backup.clean_leftovers(DATA)
-backup.start_snapshots(DATA, int(os.environ.get("BACKUP_KEEP", "7") or 0))
+migrations.run(P.db, (Path(__file__).parent / "schema.sql").read_text(), P.backups)
+backup.clean_leftovers(P)
+backup.start_snapshots(P, int(os.environ.get("BACKUP_KEEP", "7") or 0))
+P.log_summary()
 
 _pruned = {"at": 0.0}
 def prune_daily():                  # old activity goes once a day, not just when the container restarts
@@ -306,9 +307,10 @@ def admin():
                  (SELECT COUNT(*) FROM projects WHERE user_id=u.id) AS projects,
                  (SELECT COALESCE(SUM(f.size),0) FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=u.id) AS bytes
                  FROM users u ORDER BY username""")
-    snaps = sorted((DATA / "backups").glob("auto-*.db")) if (DATA / "backups").exists() else []
+    snaps = sorted(P.backups.glob("auto-*.db")) if P.backups.exists() else []
     last = datetime.fromtimestamp(snaps[-1].stat().st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if snaps else None
-    return render_template("admin.html", users=users, signups=signups_open(), quota=QUOTA, cur=currency(), snaps=len(snaps), last_snap=local_time(last) if last else None)
+    return render_template("admin.html", users=users, signups=signups_open(), quota=QUOTA, cur=currency(), snaps=len(snaps), last_snap=local_time(last) if last else None,
+                           storage=P.report())
 
 @app.post("/admin/users")
 def admin_create():
@@ -368,8 +370,8 @@ def admin_currency():
 @app.post("/admin/backup")
 def admin_backup():
     admin_only()
-    fd, tmp = tempfile.mkstemp(prefix=".download-", suffix=".zip", dir=DATA); os.close(fd)   # on the volume, not the container layer
-    backup.make_zip(DATA, tmp)
+    fd, tmp = tempfile.mkstemp(prefix=".download-", suffix=".zip", dir=P.tmp); os.close(fd)   # on a mapped folder, not the container layer
+    backup.make_zip(P, tmp)
     @after_this_request
     def _remove(resp):
         try: os.unlink(tmp)
@@ -380,10 +382,10 @@ def admin_backup():
 # ---------- self-test (runs selftest.py against a throw-away copy of the app; never touches real data) ----------
 SELFTEST = {"state": "idle", "events": []}
 SELFTEST_LOCK = threading.Lock()
-SELFTEST_DIR = DATA / "selftest"
+SELFTEST_DIR = P.selftest
 
 def _selftest_worker():
-    SELFTEST_DIR.mkdir(exist_ok=True)
+    SELFTEST_DIR.mkdir(parents=True, exist_ok=True)
     try:
         p = subprocess.Popen([sys.executable, "selftest.py", "--json-lines", "--out", str(SELFTEST_DIR)], cwd=Path(__file__).parent,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

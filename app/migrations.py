@@ -45,20 +45,20 @@ def statements(script):
 def prune_activity(c, days=365):
     c.execute(f"DELETE FROM activity WHERE ts < datetime('now','-{int(days)} day')")
 
-def pre_backup(c, path):
-    folder = path.parent / "backups"; folder.mkdir(exist_ok=True)
+def pre_backup(c, folder):
+    folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
     dst = sqlite3.connect(folder / datetime.now(timezone.utc).strftime("pre-migrate-%Y%m%d-%H%M%S.db"))
     c.backup(dst); dst.close()
     for old in sorted(folder.glob("pre-migrate-*.db"))[:-5]: old.unlink()
 
-def run(path, schema):
+def run(path, schema, backups=None):
     """Create or upgrade the database. All of it happens in one transaction: a failure leaves the old database as it was."""
     path = Path(path); fresh = not path.exists() or path.stat().st_size == 0
     c = sqlite3.connect(path, isolation_level=None, timeout=30)      # transactions handled explicitly below
     try:
         c.execute("PRAGMA journal_mode=WAL")
         if not fresh and c.execute("PRAGMA user_version").fetchone()[0] < len(STEPS):
-            pre_backup(c, path)       # a copy of the old database, just in case (before BEGIN: backup can't read mid-write)
+            pre_backup(c, backups or path.parent / "backups")       # a copy of the old database, just in case (before BEGIN: backup can't read mid-write)
         c.execute("BEGIN IMMEDIATE")                               # one process migrates at a time
         have = c.execute("PRAGMA user_version").fetchone()[0]
         for st in statements(schema): c.execute(st)

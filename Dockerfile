@@ -1,5 +1,7 @@
 FROM python:3.15-slim
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DATA_DIR=/data
+# CRAFT_IN_CONTAINER lets the app warn when a storage folder is not mapped (it would fill Docker's own disk).
+# PYTHONDONTWRITEBYTECODE keeps Python from writing .pyc files into the image layer (and works with read_only: true).
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 DATA_DIR=/data CRAFT_IN_CONTAINER=1
 # Pick up Debian security fixes released after the base image was built, so a rebuild is enough to get them.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 WORKDIR /app

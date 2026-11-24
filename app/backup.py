@@ -2,12 +2,15 @@
 import os, shutil, sqlite3, sys, threading, time, traceback, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+import paths
 try: import fcntl
 except ImportError: fcntl = None      # Windows dev box: no "is the app running?" check
 
 PACKED = {"jpg", "jpeg", "png", "gif", "webp", "pdf", "zip", "docx", "xlsx", "odt", "gz"}   # already compressed: store as-is
 KEEP_SAFETY = 5                         # pre-restore-*.db copies to keep (pre-migrate-* keeps the same number)
 _locks = {}
+# Names of the temp files Craft Stash (and Python's tempfile, used by uploads and the self-test) leaves behind.
+OURS = (".snapshot-", ".download-", ".restore-", ".write-test-", "tmp", "craftstash-selftest-")
 
 def stamp(): return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
@@ -23,37 +26,50 @@ def hold_app_lock(data_dir):
     f = open(Path(data_dir) / ".app.lock", "a+")
     fcntl.flock(f, fcntl.LOCK_SH); _locks[str(data_dir)] = f
 
-def clean_leftovers(data_dir, age=86400):
-    """Temp files from a backup or restore that was killed half-way."""
-    now = time.time()
-    for p in Path(data_dir).glob(".*"):
-        if p.name.startswith((".snapshot-", ".download-", ".restore-")) and now - p.stat().st_mtime > age:
-            shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
+def clean_leftovers(where=None, age=86400):
+    """Temp files from a backup, restore, upload or self-test that was killed half-way. Older versions left them in the
+    data folder itself, so that is swept too."""
+    P = paths.resolve(where); now = time.time()
+    for p in list(P.data.glob(".*")) + (list(P.tmp.iterdir()) if P.tmp.is_dir() else []):
+        if not p.name.startswith(OURS if p.parent == P.tmp else OURS[:3]): continue
+        try:
+            if now - p.lstat().st_mtime > age: shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
+        except OSError: pass
 
-def make_zip(data_dir, zip_path):
-    data_dir = Path(data_dir); tmp = data_dir / f".snapshot-{time.time_ns()}.db"
-    snapshot_db(data_dir / "craft.db", tmp)
+def _upload_files(P):
+    """(path on disk, name in the zip) for every uploaded file and photo, wherever their folders are mapped. The zip
+    layout stays uploads/... and uploads/photos/..., so backups move freely between differently mapped installs."""
+    skip = [P.photos, P.tmp, P.backups, P.selftest, P.data]
+    def walk(root, prefix, skip):
+        if not root.is_dir(): return
+        for p in sorted(root.rglob("*")):
+            if p.is_file() and not any(paths.under(p, s) and not paths.under(root, s) for s in skip):
+                yield p, prefix + p.relative_to(root).as_posix()
+    yield from walk(P.uploads, "uploads/", skip)
+    yield from walk(P.photos, "uploads/photos/", [P.tmp, P.backups, P.selftest])
+
+def make_zip(where, zip_path):
+    P = paths.resolve(where); P.tmp.mkdir(parents=True, exist_ok=True); tmp = P.tmp / f".snapshot-{time.time_ns()}.db"
+    snapshot_db(P.db, tmp)
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
             z.write(tmp, "craft.db")
-            up = data_dir / "uploads"
-            for p in sorted(up.rglob("*")) if up.exists() else []:
-                if p.is_file():
-                    packed = p.suffix.lstrip(".").lower() in PACKED
-                    z.write(p, "uploads/" + p.relative_to(up).as_posix(), compress_type=zipfile.ZIP_STORED if packed else zipfile.ZIP_DEFLATED)
+            for p, name in _upload_files(P):
+                packed = p.suffix.lstrip(".").lower() in PACKED
+                z.write(p, name, compress_type=zipfile.ZIP_STORED if packed else zipfile.ZIP_DEFLATED)
     finally: tmp.unlink(missing_ok=True)
 
-def start_snapshots(data_dir, keep):
-    """Daily database-only snapshots in /data/backups. Uploads are not copied (they are large and rarely change)."""
+def start_snapshots(where, keep):
+    """Daily database-only snapshots in BACKUP_DIR. Uploads are not copied (they are large and rarely change)."""
     if keep <= 0: return
-    data_dir = Path(data_dir)
+    P = paths.resolve(where)
     def loop():
         while True:
             try:
-                folder = data_dir / "backups"; folder.mkdir(exist_ok=True)
+                folder = P.backups; folder.mkdir(parents=True, exist_ok=True)
                 newest = max((f.stat().st_mtime for f in folder.glob("auto-*.db")), default=0)
                 if time.time() - newest > 86400:
-                    snapshot_db(data_dir / "craft.db", folder / f"auto-{stamp()}.db")
+                    snapshot_db(P.db, folder / f"auto-{stamp()}.db")
                     prune(folder, "auto-*.db", keep)
             except Exception:    # keep trying hourly, but say why in `docker logs`
                 print(f"[snapshots] daily snapshot failed:\n{traceback.format_exc()}", file=sys.stderr, flush=True)
@@ -83,17 +99,28 @@ def _exclusive(data_dir, force):
             raise SystemExit("The app is still running. Stop it first (docker compose stop craft-stash), or pass --force.")
     return f
 
-def restore(data_dir, src, force=False):
+def _restore_uploads(P, staged):
+    """Put a backup's files back wherever UPLOADS_DIR and PHOTOS_DIR point now. The folders are emptied, not removed:
+    either may be a mount point, and other mapped folders nested inside them are left alone."""
+    others = [P.data, P.backups, P.tmp, P.selftest]
+    nested = [o for o in others if paths.under(o, P.uploads) and not paths.under(P.uploads, o)]
+    P.uploads.mkdir(parents=True, exist_ok=True); P.photos.mkdir(parents=True, exist_ok=True)
+    paths.clear_dir(P.uploads, keep=nested + [P.photos]); paths.clear_dir(P.photos, keep=[o for o in others if paths.under(o, P.photos)])
+    sp = staged / "photos"
+    if sp.is_dir(): shutil.copytree(sp, P.photos, dirs_exist_ok=True); shutil.rmtree(sp)
+    shutil.copytree(staged, P.uploads, dirs_exist_ok=True)
+
+def restore(where, src, force=False):
     """Replace the database (and uploads, for a full zip) from a backup. Stop the app first."""
-    data_dir, src = Path(data_dir), Path(src)
+    P, src = paths.resolve(where), Path(src)
     if not src.exists(): raise SystemExit(f"No such file: {src}")
-    lock = _exclusive(data_dir, force)
+    lock = _exclusive(P.data, force)
     try:
-        (data_dir / "backups").mkdir(exist_ok=True)
-        if (data_dir / "craft.db").exists():
-            snapshot_db(data_dir / "craft.db", data_dir / "backups" / f"pre-restore-{stamp()}.db")
-            prune(data_dir / "backups", "pre-restore-*.db", KEEP_SAFETY)
-        stage = data_dir / f".restore-{stamp()}"; stage.mkdir()
+        P.backups.mkdir(parents=True, exist_ok=True); P.tmp.mkdir(parents=True, exist_ok=True)
+        if P.db.exists():
+            snapshot_db(P.db, P.backups / f"pre-restore-{stamp()}.db")
+            prune(P.backups, "pre-restore-*.db", KEEP_SAFETY)
+        stage = P.tmp / f".restore-{stamp()}"; stage.mkdir()
         try:
             uploads = None
             if zipfile.is_zipfile(src):
@@ -112,10 +139,9 @@ def restore(data_dir, src, force=False):
             else:
                 newdb = src
             _check_db(newdb)
-            for ext in ("-wal", "-shm"): (data_dir / f"craft.db{ext}").unlink(missing_ok=True)
-            shutil.copyfile(newdb, data_dir / "craft.db")
-            if uploads is not None:
-                shutil.rmtree(data_dir / "uploads", ignore_errors=True); shutil.copytree(uploads, data_dir / "uploads")
+            for ext in ("-wal", "-shm"): (P.data / f"craft.db{ext}").unlink(missing_ok=True)
+            shutil.copyfile(newdb, P.db)
+            if uploads is not None: _restore_uploads(P, uploads)
         finally: shutil.rmtree(stage, ignore_errors=True)
     finally:
         if lock: lock.close()
