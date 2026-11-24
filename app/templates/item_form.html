@@ -7,6 +7,13 @@
 {% if proto %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Copied from {{ proto.name }}. Change what differs, like the colour, and save.</span></div>{% endif %}
 <form class="panel" method="post" enctype="multipart/form-data">{{ csrf }}
 <div class="form-grid">
+<div class="field wide photo-first" data-photo-first><span>Photo</span>
+<div class="photo-pick"><img class="photo-preview" alt="" {% if i and i.photo %}src="{{ url_for('photo', iid=i.id) }}"{% else %}hidden{% endif %}>
+<div class="photo-pick-body"><input type="file" name="photo" accept="image/*" aria-label="Take or choose a photo">
+<p class="muted small" style="margin:0">{{ 'Choose a new photo to replace this one.' if i and i.photo else 'Start with a photo. The swatch colour is suggested from it.' }}</p>
+{% if i and i.photo %}<div class="inline"><button type="button" class="btn secondary sm" data-colour-from-photo>Suggest colour</button>
+<label class="inline" style="flex:none"><input type="checkbox" name="remove_photo">Remove photo</label></div>{% endif %}</div></div>
+<div class="photo-colours" hidden><span class="small muted">Colours in the photo. Tap one for the swatch:</span><div class="photo-colour-list"></div></div></div>
 <label class="field wide"><span>Name</span><input name="name" value="{{ (src.name ~ ' copy') if proto else (i.name if i) }}" required maxlength="120" autofocus></label>
 <label class="field"><span>Colour name</span><input name="colour" value="{{ src.colour if src }}" maxlength="60" placeholder="Dusty rose"></label>
 <div class="field"><span>Swatch</span><div class="inline"><input type="checkbox" id="has_hex" name="has_hex" {{ 'checked' if src and src.hex }}><label for="has_hex">Show swatch</label>
@@ -23,7 +30,6 @@
 <p class="muted small" style="margin:0">Split this item across several places. Whatever isn't listed here is at the main location. Clear a row to remove that place.</p>
 {% for pl in (places or []) %}<div class="inline"><input name="place_name" value="{{ pl.place }}" maxlength="80" aria-label="Place"><input name="place_qty" type="number" step="any" min="0" inputmode="decimal" value="{{ '%g'|format(pl.qty) }}" aria-label="Amount at {{ pl.place }} in {{ t.unit }}"><span class="small muted">{{ t.unit }}</span></div>{% endfor %}
 {% for n in range(2) %}<div class="inline"><input name="place_name" maxlength="80" placeholder="{{ 'Shelf B' if loop.first else 'Another place' }}" aria-label="New place"><input name="place_qty" type="number" step="any" min="0" inputmode="decimal" placeholder="Amount" aria-label="Amount at new place in {{ t.unit }}"><span class="small muted">{{ t.unit }}</span></div>{% endfor %}</details>
-<div class="field wide"><span>Photo (optional)</span>{% if i and i.photo %}<div class="inline"><img src="{{ url_for('photo', iid=i.id) }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:10px;flex:none"><label class="inline" style="flex:none"><input type="checkbox" name="remove_photo">Remove photo</label></div>{% endif %}<input type="file" name="photo" accept="image/*"></div>
 <label class="field wide"><span>Notes</span><textarea name="notes" rows="3" maxlength="1000">{{ src.notes if src }}</textarea></label></div>
 {% if t.can_edit %}<p class="muted small" style="margin-top:14px">Need another field for {{ t.name|lower }}? <a href="{{ url_for('type_fields', tid=t.id) }}">Manage fields</a></p>{% endif %}
 <div class="form-actions"><button class="btn">Save item</button>{% if not i %}<button class="btn secondary" name="then" value="another">Save and add another</button>{% endif %}<a class="btn secondary" href="{{ url_for('pool', pid=t.pool_id) }}">Cancel</a></div></form>
