@@ -24,6 +24,11 @@ The first account to register becomes the admin. Admins manage users from the **
 - Daily database snapshots and a one-click full backup (admin).
 - **JSON API** with per-user tokens, for Home Assistant and scripts: shopping list, stock, collections and projects, plus restocking and using stock. See [API and Home Assistant](#api-and-home-assistant).
 
+## Unraid
+Use the template in [`unraid/craft-stash.xml`](unraid/craft-stash.xml): it maps App data, Photos, Files and Backups to
+their own folders (so nothing lands on the Docker vdisk) with `PUID 99` / `PGID 100`. Install steps, and how to use
+the Compose Manager plugin instead, are in [`unraid/README.md`](unraid/README.md).
+
 ## Behind a reverse proxy
 Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status from the proxy. Also set
 `TRUSTED_PROXIES` to the proxy's address or Docker network (e.g. `172.16.0.0/12`, comma-separate several): forwarded
@@ -71,7 +76,7 @@ session cookie all follow it. A proxy that sends `X-Forwarded-Prefix` works with
 | `MAX_UPLOAD_MB` | 25 | Largest single upload |
 | `USER_QUOTA_MB` | 500 | Guide/pattern storage per user, 0 = unlimited |
 | `BACKUP_KEEP` | 7 | Daily database snapshots to keep, 0 = off |
-| `SECRET_KEY` | auto | Session signing key; generated into the volume if empty |
+| `SECRET_KEY` | auto | Session signing key; generated into the volume if empty. `SECRET_KEY_FILE` reads it from a file |
 | `UPLOADS_DIR` / `PHOTOS_DIR` / `BACKUP_DIR` / `TMP_DIR` | under `/data` | Put a folder on its own volume or host folder; see [Storage](#storage) |
 | `DATABASE_URL` | empty (SQLite) | An external PostgreSQL or MariaDB/MySQL database; see [Database](#database). Also `DB_TYPE`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `DB_CONNECT_TIMEOUT` |
 | `CHOWN` | auto | `auto` fixes ownership only where it is wrong, `always` every start, `never` leaves it alone (NAS shares) |

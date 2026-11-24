@@ -26,7 +26,7 @@ app = Flask(__name__)
 key_file = DATA / "secret_key"
 if not key_file.exists():
     key_file.write_text(secrets.token_hex(32))
-app.secret_key = os.environ.get("SECRET_KEY") or key_file.read_text().strip()
+app.secret_key = dbx.secret("SECRET_KEY") or key_file.read_text().strip()      # SECRET_KEY, SECRET_KEY_FILE or the generated one
 app.config.update(
     MAX_CONTENT_LENGTH=int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024,
     SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
@@ -115,7 +115,17 @@ backup.hold_app_lock(DATA)          # first, so `manage.py restore` refuses to r
 DB = migrations.prepare(P)          # configure the database from the environment (waits for a server) and upgrade it
 backup.clean_leftovers(P)
 backup.start_snapshots(P, int(os.environ.get("BACKUP_KEEP", "7") or 0))
-P.log_summary(); print(f"[db] {DB.describe()}", file=sys.stderr, flush=True)
+def startup_summary(out=None):
+    """What this copy is running with, in two log lines. Never includes a password, key or token."""
+    out = out or sys.stderr
+    P.log_summary(out)
+    proxy = ("off" if not _hops else f"{_hops} hop(s)" + (f" from {', '.join(map(str, TRUSTED_NETS))}" if TRUSTED_NETS else " from anywhere"))
+    bits = [f"db={DB.describe()}", f"proxy={proxy}", f"prefix={URL_PREFIX or '/'}",
+            f"cookies={os.environ.get('COOKIE_SECURE', 'auto')}", f"uploads<={app.config['MAX_CONTENT_LENGTH'] // 1048576} MB",
+            f"quota={QUOTA // 1048576 or 'none'}{' MB' if QUOTA else ''}", f"snapshots={os.environ.get('BACKUP_KEEP', '7') or '0'}",
+            f"tz={TZ.key}", f"secret_key={'set' if os.environ.get('SECRET_KEY') or os.environ.get('SECRET_KEY_FILE') else 'generated'}"]
+    print("[config] " + "  ".join(bits), file=out, flush=True)
+startup_summary()
 
 _pruned = {"at": 0.0}
 def prune_daily():                  # old activity goes once a day, not just when the container restarts
