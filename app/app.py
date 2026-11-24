@@ -731,7 +731,32 @@ def photo(iid):
 def shopping():
     rows = q(f"""SELECT s.*, a.can_edit FROM stock s JOIN access a ON a.pool_id=s.pool_id
                  WHERE a.user_id=? AND {LOW} ORDER BY s.pname, s.tname, s.name""", uid())
-    return render_template("shopping.html", rows=rows)
+    return render_template("shopping.html", rows=rows, suggest=suggest)
+
+def suggest(s):
+    """How much to buy so an item is no longer on the shopping list (at least 1 when it's simply out)."""
+    need = max(-s["free"], (s["low_at"] - s["qty"]) if s["low_at"] is not None else 0, 0)
+    if s["low_at"] is not None and s["qty"] + need <= s["low_at"]: need += 1   # "at the level" still counts as low
+    return need or 1
+
+@app.post("/shopping/restock")
+def restock():
+    """Add every amount entered on the shopping list in one go."""
+    done = skipped = 0
+    for k, v in request.form.items():
+        m = re.fullmatch(r"bought_(\d+)", k); n = num(v)
+        if not m or n <= 0: continue
+        i = db().execute("""SELECT s.* FROM stock s JOIN access a ON a.pool_id=s.pool_id
+                            WHERE s.id=? AND a.user_id=? AND a.can_edit=1""", (int(m[1]), uid())).fetchone()
+        if not i: skipped += 1; continue
+        new = i["qty"] + n
+        db().execute("UPDATE items SET qty=? WHERE id=?", (new, i["id"]))
+        log(i["pool_id"], "adjust", f"Added {n:g} {i['unit']} of {i['name']} ({i['qty']:g} to {new:g})", i["id"], n, commit=False)
+        done += 1
+    db().commit()
+    flash(f"Restocked {done} item{'s' if done != 1 else ''}." if done else "Enter how much you bought next to at least one item.")
+    if skipped: flash(f"{skipped} item(s) were skipped: they're gone or you can no longer edit them.")
+    return redirect(url_for("shopping"))
 
 @app.route("/appearance", methods=["GET", "POST"])
 def appearance():
