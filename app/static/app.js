@@ -204,4 +204,10 @@
     const i = b.parentElement.querySelector('input'); i.select();
     try { await navigator.clipboard.writeText(i.value); b.textContent = 'Copied'; } catch (e) { b.textContent = document.execCommand('copy') ? 'Copied' : 'Selected: copy it'; }
   }));
+  // Menus (<details class="menu">): only one open at a time; close on Escape or a click elsewhere.
+  const menus = () => document.querySelectorAll('details.menu[open]');
+  document.addEventListener('click', e => menus().forEach(m => { if (!m.contains(e.target)) m.open = false; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') menus().forEach(m => { m.open = false; m.querySelector('summary').focus(); }); });
+  document.querySelectorAll('.menu-list a').forEach(a => a.addEventListener('click', () => { a.closest('details').open = false; }));
+  document.querySelectorAll('details.menu').forEach(d => d.addEventListener('toggle', () => { if (d.open) menus().forEach(m => { if (m !== d) m.open = false; }); }));
 })();

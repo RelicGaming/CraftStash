@@ -2,20 +2,25 @@
 {% block body %}
 <a class="back" href="{{ url_for('projects') }}"><svg class="i"><use href="#i-chev-l"/></svg>Projects</a>
 <div class="page-head"><h1>{{ p.name }}</h1><span class="pill {{ {'active':'accent','done':'ok','template':'warn'}.get(p.status,'') }}">{{ p.status|capitalize }}</span><span class="grow"></span>
-<div class="actions"><button class="btn secondary" data-print type="button"><svg class="i"><use href="#i-print"/></svg>Print</button>
+<div class="actions">
 {% if p.status == 'template' %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn"><svg class="i"><use href="#i-plus"/></svg>{{ 'Start a project' if mine else 'Save a copy' }}</button></form>
-{% else %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn secondary">{{ 'Duplicate' if mine else 'Save a copy' }}</button></form>
-{% if mine %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<input type="hidden" name="as" value="template"><button class="btn secondary">Save as template</button></form>{% endif %}{% endif %}
-{% if mine and p.status == 'done' %}<form method="post" action="{{ url_for('reopen', id=p.id) }}" data-confirm="Reopen this project?{% if assigned|selectattr('used')|list %} The materials it used go back into stock.{% endif %}">{{ csrf }}<button class="btn secondary">Reopen</button></form>{% endif %}
-{% if not mine %}<form method="post" action="{{ url_for('leave_project', id=p.id) }}">{{ csrf }}<button class="btn ghost danger">Stop following</button></form>{% endif %}
-{% if mine and p.status not in ('done', 'template') and assigned %}<form method="post" action="{{ url_for('complete', id=p.id) }}" style="display:contents">{{ csrf }}<button class="btn secondary" name="stock" value="keep" data-confirm="Mark as done but leave your stock as it is? Nothing is deducted.">Complete, keep stock</button></form><a class="btn" href="{{ url_for('finish', id=p.id) }}"><svg class="i"><use href="#i-check"/></svg>Mark complete</a>{% endif %}</div></div>
+{% elif mine and p.status == 'done' %}<form method="post" action="{{ url_for('reopen', id=p.id) }}" data-confirm="Reopen this project?{% if assigned|selectattr('used')|list %} The materials it used go back into stock.{% endif %}">{{ csrf }}<button class="btn secondary">Reopen</button></form>
+{% elif mine and assigned %}<a class="btn" href="{{ url_for('finish', id=p.id) }}"><svg class="i"><use href="#i-check"/></svg>Mark complete</a>
+{% elif not mine %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn secondary">Save a copy</button></form>{% endif %}
+<details class="menu"><summary class="btn secondary" aria-label="More project actions"><svg class="i"><use href="#i-more"/></svg>More</summary><div class="menu-list" role="menu">
+<button role="menuitem" type="button" data-print><svg class="i"><use href="#i-print"/></svg>Print</button>
+{% if mine and p.status != 'template' %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button role="menuitem">Duplicate</button></form>
+<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<input type="hidden" name="as" value="template"><button role="menuitem">Save as template</button></form>{% endif %}
+{% if mine and p.status not in ('done', 'template') and assigned %}<form method="post" action="{{ url_for('complete', id=p.id) }}">{{ csrf }}<button role="menuitem" name="stock" value="keep" data-confirm="Mark as done but leave your stock as it is? Nothing is deducted.">Complete without using stock</button></form>{% endif %}
+{% if not mine %}<form method="post" action="{{ url_for('leave_project', id=p.id) }}">{{ csrf }}<button role="menuitem" class="danger-text">Stop following</button></form>{% endif %}
+</div></details></div></div>
 {% if p.status == 'template' %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>This is a template. Its materials are only a list: they don't hold any of your stock. {{ 'Start a project from it to reserve them.' if mine else '' }}</span></div>{% endif %}
 {% if not mine %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Shared by {{ p.owner }}. You can view and print this project but not change it.</span></div>{% endif %}
 {% if p.notes %}<div class="print-only" style="white-space:pre-wrap;margin-bottom:12px">{{ p.notes }}</div>{% endif %}
 <div class="cols"><div>
 <section class="panel"><div class="panel-head"><h2>Materials needed</h2>{% if mine and cost %}<span class="muted small">About {{ cost|money }} of supplies</span>{% endif %}</div>
 <div class="strip lg">{% for h in hexes %}<i style="--c:{{ h }}"></i>{% endfor %}</div>
-{% for a in assigned %}<div class="list-row"><span class="sw-dot{{ '' if a.hex else ' none' }}" {% if a.hex %}style="--c:{{ a.hex }}"{% endif %}></span>
+{% for a in assigned %}<div class="list-row mat-row"><span class="sw-dot{{ '' if a.hex else ' none' }}" {% if a.hex %}style="--c:{{ a.hex }}"{% endif %}></span>
 <div class="grow"><strong>{{ a.name }}</strong>{% if a.colour %} <span class="muted">{{ a.colour }}</span>{% endif %}<div class="muted small">{{ a.tname }}{% if a.subtype %}, {{ a.subtype }}{% endif %}</div></div>
 <strong>{{ '%g'|format(a.qty) }} {{ a.unit }}</strong>{% if a.consumed %}{% if a.used %}<span class="pill ok">{% if (a.used - a.qty)|abs > 1e-9 %}Used {{ '%g'|format(a.used) }}{% else %}Used{% endif %}</span>{% else %}<span class="pill">Not deducted</span>{% endif %}{% elif mine and a.free < 0 and p.status != 'template' %}<span class="pill bad">Short by {{ '%g'|format(-a.free) }}</span>{% endif %}
 {% if mine and not a.consumed %}<form class="noprint" method="post" action="{{ url_for('unassign', aid=a.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form>{% endif %}</div>

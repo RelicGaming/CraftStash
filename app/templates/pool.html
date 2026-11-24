@@ -5,9 +5,12 @@
 {% if not pool.is_owner %}<span class="pill accent">{{ 'Can edit' if pool.can_edit else 'View only' }}, shared by {{ pool.owner }}</span>{% endif %}
 {% if value %}<span class="pill">About {{ value|money }} of supplies</span>{% endif %}<span class="grow"></span>
 <div class="actions"><a class="btn secondary sm" href="{{ url_for('activity', pid=pool.id) }}">Activity</a>
-{% if pool.can_edit %}<a class="btn secondary sm" href="{{ url_for('import_csv', pid=pool.id) }}">Import CSV</a>{% endif %}
-<a class="btn secondary sm" href="{{ url_for('export_csv', pid=pool.id) }}">Export CSV</a>
-{% if not pool.is_owner %}<form method="post" action="{{ url_for('leave_pool', pid=pool.id) }}" data-confirm="Leave this collection? Your reservations from it will be removed.">{{ csrf }}<button class="btn ghost danger sm">Leave</button></form>{% endif %}</div></div>
+<details class="menu"><summary class="btn secondary sm" aria-label="More collection actions"><svg class="i"><use href="#i-more"/></svg>More</summary><div class="menu-list" role="menu">
+{% if pool.can_edit %}<a role="menuitem" href="{{ url_for('import_csv', pid=pool.id) }}">Import from CSV</a>{% endif %}
+<a role="menuitem" href="{{ url_for('export_csv', pid=pool.id) }}">Export to CSV</a>
+{% if pool.is_owner %}<a role="menuitem" href="#settings">Collection settings and sharing</a>{% endif %}
+{% if not pool.is_owner %}<form method="post" action="{{ url_for('leave_pool', pid=pool.id) }}" data-confirm="Leave this collection? Your reservations from it will be removed.">{{ csrf }}<button role="menuitem" class="danger-text">Leave collection</button></form>{% endif %}
+</div></details></div></div>
 {% macro type_form(first) %}
 <form method="post" action="{{ url_for('new_type', pid=pool.id) }}">{{ csrf }}
 {% if presets %}<p class="muted small" style="margin:0 0 8px">{{ 'Tap one to start' if first else 'Quick add' }}. Each comes with a unit and useful fields you can change later.</p>
@@ -31,7 +34,7 @@
 <details class="type" open><summary><svg class="i chev"><use href="#i-chev-d"/></svg>
 <span class="type-title">{{ t.name }}</span><span class="pill">{{ t.unit }}</span><span class="muted small">{{ rows|length }} {{ 'item' if rows|length == 1 else 'items' }}</span><span class="type-gap"></span>
 {% if pool.can_edit %}<a class="btn sm" href="{{ url_for('item_new', tid=t.id) }}"><svg class="i"><use href="#i-plus"/></svg>Add item</a>
-<a class="btn secondary sm" href="{{ url_for('type_fields', tid=t.id) }}">Fields</a>{% endif %}</summary>
+<a class="btn secondary sm" href="{{ url_for('type_fields', tid=t.id) }}" aria-label="Edit {{ t.name }} type and fields">Edit type</a>{% endif %}</summary>
 {% for i in rows %}{% set x = i.extra|fromjson %}
 <div class="item" id="item-{{ i.id }}"><span class="sw-tile{{ '' if i.hex else ' none' }}{{ ' photo' if i.photo }}" {% if i.hex %}style="--c:{{ i.hex }}"{% endif %}>{% if i.photo %}<img src="{{ url_for('photo', iid=i.id) }}" alt="" loading="lazy">{% if i.hex %}<span class="dot"></span>{% endif %}{% endif %}</span>
 <div>{% if pool.can_edit %}<a class="item-name" href="{{ url_for('item_edit', iid=i.id) }}">{{ i.name }}</a>{% else %}<span class="item-name">{{ i.name }}</span>{% endif %}
@@ -66,7 +69,8 @@
 <div style="margin-top:12px">{{ type_form(false) }}</div></details>{% endif %}
 
 {% if pool.is_owner %}
-<form class="panel" method="post" action="{{ url_for('update_pool', pid=pool.id) }}">{{ csrf }}<div class="panel-head"><h2>Collection details</h2></div>
+<h2 class="section-title" id="settings">Collection settings</h2>
+<form class="panel" method="post" action="{{ url_for('update_pool', pid=pool.id) }}">{{ csrf }}<div class="panel-head"><h2>Name and craft</h2></div>
 <div class="inline"><input name="name" value="{{ pool.name }}" required maxlength="80" aria-label="Name"><input name="craft" value="{{ pool.craft }}" maxlength="80" placeholder="Craft (optional)" aria-label="Craft"><button class="btn secondary">Save</button></div></form>
 <section class="panel"><div class="panel-head"><h2>Sharing</h2></div>
 {% for s in shares %}<div class="list-row"><span class="avatar" style="--h:{{ (s.id * 67) % 360 }}">{{ s.username[0]|upper }}</span><span class="grow"><strong>{{ s.username }}</strong></span>

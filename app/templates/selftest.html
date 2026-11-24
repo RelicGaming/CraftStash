@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block title %}Self-test - Craft Stash{% endblock %}
 {% block body %}
-<a class="back" href="{{ url_for('admin') }}"><svg class="i"><use href="#i-chev-l"/></svg>Users</a>
+<a class="back" href="{{ url_for('admin') }}"><svg class="i"><use href="#i-chev-l"/></svg>Admin</a>
 <div class="page-head"><h1>Self-test</h1><span class="grow"></span>
 <div class="actions"><a class="btn secondary" id="report" href="{{ url_for('selftest_report') }}" target="_blank" {% if not has_report %}hidden{% endif %}>Open full report</a>
 <a class="btn secondary" id="json" href="{{ url_for('selftest_report', format='json') }}" {% if not has_report %}hidden{% endif %}>Download JSON</a>
