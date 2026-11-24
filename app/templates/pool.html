@@ -25,11 +25,20 @@
 <div>{% if pool.can_edit %}<a class="item-name" href="{{ url_for('item_edit', iid=i.id) }}">{{ i.name }}</a>{% else %}<span class="item-name">{{ i.name }}</span>{% endif %}
 <div class="item-sub">{% if i.colour %}<span>{{ i.colour }}</span>{% endif %}{% if i.subtype %}<span>{{ i.subtype }}</span>{% endif %}
 {% for f in fl if x.get(f.id) %}<span class="chip"><b>{{ f.label }}</b>{{ x.get(f.id) }}</span>{% endfor %}
-{% if i.location %}<span class="chip"><svg class="i"><use href="#i-pin"/></svg>{{ i.location }}</span>{% endif %}</div>
+{% set pls = places.get(i.id, []) %}{% set rest = i.qty - (pls|sum(attribute='qty')) %}
+{% if i.location or (pls and rest > 1e-9) %}<span class="chip"><svg class="i"><use href="#i-pin"/></svg>{{ i.location or 'Main' }}{% if pls %}: {{ '%g'|format(rest) }}{% endif %}</span>{% endif %}
+{% for pl in pls %}<span class="chip"><svg class="i"><use href="#i-pin"/></svg>{{ pl.place }}: {{ '%g'|format(pl.qty) }}</span>{% endfor %}</div>
 {% if pool.can_edit %}<details class="adjust noprint"><summary>Adjust stock</summary>
 <form class="inline" method="post" action="{{ url_for('item_adjust', iid=i.id) }}">{{ csrf }}<input type="hidden" name="next" value="{{ request.full_path }}">
 <input name="amount" type="number" step="any" min="0" placeholder="Amount in {{ t.unit }}" required aria-label="Amount" style="max-width:170px">
-<button class="btn secondary sm" name="action" value="use">Use</button><button class="btn sm" name="action" value="add">Add</button></form></details>{% endif %}</div>
+{% if pls %}<select name="place" aria-label="Where" style="max-width:170px"><option value="">{{ i.location or 'Main location' }}</option>{% for pl in pls %}<option value="{{ pl.place }}">{{ pl.place }}</option>{% endfor %}</select>{% endif %}
+<button class="btn secondary sm" name="action" value="use">Use</button><button class="btn sm" name="action" value="add">Add</button></form>
+<p class="muted small" style="margin:10px 0 4px">Move between places</p><form class="inline" method="post" action="{{ url_for('item_move', iid=i.id) }}">{{ csrf }}<input type="hidden" name="next" value="{{ request.full_path }}">
+<input name="amount" type="number" step="any" min="0" placeholder="Move amount" required aria-label="Amount to move" style="max-width:130px">
+<select name="from" aria-label="Move from" style="max-width:150px"><option value="">{{ i.location or 'Main location' }}</option>{% for pl in pls %}<option value="{{ pl.place }}">{{ pl.place }}</option>{% endfor %}</select>
+<input name="to" list="places-{{ i.id }}" maxlength="80" required placeholder="To place" aria-label="Move to" style="max-width:190px">
+<datalist id="places-{{ i.id }}">{% if i.location %}<option value="{{ i.location }}">{% endif %}{% for pl in pls %}<option value="{{ pl.place }}">{% endfor %}</datalist>
+<button class="btn secondary sm">Move</button></form></details>{% endif %}</div>
 <div class="item-stock"><strong>{{ '%g'|format(i.qty) }}</strong> {{ t.unit }}
 {% if i.free < 0 %}<small><span class="pill bad">Short by {{ '%g'|format(-i.free) }}</span></small>{% elif i.qty <= 0 %}<small><span class="pill bad">Out of stock</span></small>{% elif i.low_at is not none and i.qty <= i.low_at %}<small><span class="pill warn">Low stock</span></small>{% elif i.free <= 0 %}<small><span class="pill warn">All reserved</span></small>{% elif i.free < i.qty %}<small>{{ '%g'|format(i.free) }} free</small>{% endif %}</div>
 <div class="item-price">{% if i.price is not none %}{{ i.price|money }}<small>per {{ t.unit }}</small>{% endif %}</div></div>
