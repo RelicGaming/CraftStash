@@ -19,6 +19,16 @@ def test_restore_rejects_garbage(env, amy):
     except SystemExit as e: assert "healthy" in str(e) or "Not a" in str(e)
     else: raise AssertionError("garbage was accepted")
 
+def test_restore_refuses_a_database_with_virtual_tables(env, amy):
+    """A crafted FTS5 index can overflow SQLite's buffers, and Craft Stash never makes virtual tables."""
+    import backup; seed(amy)
+    bad = env.data / "fts.db"; backup.snapshot_db(env.data / "craft.db", bad)
+    c = sqlite3.connect(bad); c.execute("CREATE VIRTUAL TABLE notes_fts USING fts5(body, detail=none)"); c.commit(); c.close()
+    try: backup.restore(env.data, bad, force=True)
+    except SystemExit as e: assert "virtual tables" in str(e)
+    else: raise AssertionError("a database with an FTS5 table was restored")
+    c = env.client(); c.login("amy"); assert "Merino" in c.html("/collections/1")          # the live database is untouched
+
 def test_backup_is_admin_only(env, amy, bob):
     assert bob.post("/admin/backup").status_code == 403
 
