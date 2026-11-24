@@ -1,7 +1,7 @@
 """Ordered, idempotent schema upgrades.
 
 SQLite: PRAGMA user_version records how many STEPS have run (schema_version mirrors it).
-PostgreSQL: a new database starts from schema/postgres.sql at the current version, recorded in schema_version;
+PostgreSQL, MariaDB/MySQL: a new database starts from schema/<engine>.sql at the current version, recorded in schema_version;
 SERVER_STEPS holds upgrades written for server engines from then on.
 """
 import json, sqlite3
@@ -87,33 +87,76 @@ SERVER_STEPS = []
 def schema_file(engine):
     return (Path(__file__).parent / "schema" / f"{engine}.sql").read_text()
 
+MYSQL_TRIGGER = """CREATE TRIGGER places_fit AFTER UPDATE ON items FOR EACH ROW
+BEGIN
+  DECLARE held DOUBLE;
+  IF NEW.qty < OLD.qty THEN
+    SELECT COALESCE(SUM(qty), 0) INTO held FROM item_places WHERE item_id = NEW.id;
+    IF NEW.qty < held THEN
+      UPDATE item_places SET qty = qty * NEW.qty / held WHERE item_id = NEW.id;
+      DELETE FROM item_places WHERE item_id = NEW.id AND qty < 1e-9;
+    END IF;
+  END IF;
+END"""
+
+def _script(c, sql):
+    """Run a whole schema script on a server connection."""
+    if c.engine == "postgres": c.raw.cursor().execute(sql); return
+    for st in _split_mysql(sql):
+        c.raw.cursor().execute(st)
+
+def _split_mysql(sql):
+    """Statements of mysql.sql (no procedure bodies there, so ; at a line end ends one)."""
+    buf = []
+    for line in sql.splitlines():
+        if line.strip().startswith("--") and not buf: continue
+        buf.append(line)
+        if line.rstrip().endswith(";"): yield "\n".join(buf).rstrip().rstrip(";"); buf = []
+    if "".join(buf).strip(): yield "\n".join(buf)
+
 def run_server(c, sqlite_path=None):
-    """Create or upgrade a server database, in one transaction, one process at a time.
+    """Create or upgrade a server database, one process at a time.
     Refuses to start on an empty database while a SQLite database with accounts sits in the data folder: that is
     almost always a switch to an external database that forgot to move the data."""
-    cur = c.raw.cursor()
-    cur.execute("SELECT pg_advisory_xact_lock(726173)")              # 'craft' - other app copies wait here
-    cur.execute("SELECT to_regclass('users') IS NOT NULL")
-    exists = cur.fetchone()[0]
-    if not exists and sqlite_path and Path(sqlite_path).exists():
-        try:
-            s = sqlite3.connect(sqlite_path); n = s.execute("SELECT COUNT(*) FROM users").fetchone()[0]; s.close()
-        except sqlite3.DatabaseError: n = 0
-        if n:
-            c.rollback()
-            raise SystemExit(f"The database {dbx.CFG.describe()} is empty, but {sqlite_path} has {n} account(s). To move "
-                             f"them across, stop the app and run:  python manage.py move-db --to <your DATABASE_URL>  with "
-                             f"DATABASE_URL unset (see the README, 'Moving to another database'). To start empty "
-                             f"instead, move {sqlite_path} out of the data folder.")
-    cur.execute(schema_file(c.engine))                                  # whole script: idempotent, has $$ bodies
-    cur.execute("SELECT version FROM schema_version")
-    row = cur.fetchone(); base = len(STEPS)
-    have = row[0] if row else base
-    if not row: cur.execute("INSERT INTO schema_version(version) VALUES(%s)", (base,))
-    for n, step in enumerate(SERVER_STEPS, base + 1):
-        if n > have: step(c)
-    if have < base + len(SERVER_STEPS): cur.execute("UPDATE schema_version SET version=%s", (base + len(SERVER_STEPS),))
-    c.commit()
+    cur = c.raw.cursor(); pg = c.engine == "postgres"
+    if pg:
+        cur.execute("SELECT pg_advisory_xact_lock(726173)")          # 'craft' - other app copies wait here
+        cur.execute("SELECT to_regclass('users') IS NOT NULL")
+    else:
+        cur.execute("SELECT GET_LOCK('craftstash_migrate', 120)")
+        cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='users'")
+    exists = bool(cur.fetchone()[0])
+    try:
+        if not exists and sqlite_path and Path(sqlite_path).exists():
+            try:
+                s = sqlite3.connect(sqlite_path); n = s.execute("SELECT COUNT(*) FROM users").fetchone()[0]; s.close()
+            except sqlite3.DatabaseError: n = 0
+            if n:
+                c.rollback()
+                raise SystemExit(f"The database {dbx.CFG.describe()} is empty, but {sqlite_path} has {n} account(s). To move "
+                                 f"them across, stop the app and run:  python manage.py move-db --to <your DATABASE_URL>  with "
+                                 f"DATABASE_URL unset (see the README, 'Moving to another database'). To start empty "
+                                 f"instead, move {sqlite_path} out of the data folder.")
+        _script(c, schema_file(c.engine))                               # idempotent
+        if not pg:
+            # The app keeps places within totals itself; this trigger is only a backstop, and creating one needs the
+            # TRIGGER privilege (and, with binary logging, log_bin_trust_function_creators), so it's optional.
+            try:
+                cur.execute("DROP TRIGGER IF EXISTS places_fit"); cur.execute(MYSQL_TRIGGER)
+            except dbx.DatabaseError as e:
+                print(f"[db] note: couldn't create the places_fit trigger ({e}); the app enforces the rule itself.", flush=True)
+        cur.execute("SELECT version FROM schema_version")
+        row = cur.fetchone(); base = len(STEPS)
+        have = row[0] if row else base
+        if not row: cur.execute("INSERT INTO schema_version(version) VALUES(%s)", (base,))
+        for n, step in enumerate(SERVER_STEPS, base + 1):
+            if n > have: step(c)
+        if have < base + len(SERVER_STEPS): cur.execute("UPDATE schema_version SET version=%s", (base + len(SERVER_STEPS),))
+        c.commit()
+    finally:
+        if not pg:
+            try: c.raw.cursor().execute("SELECT RELEASE_LOCK('craftstash_migrate')")
+            except Exception: pass
     return not exists
 
 def prepare(P, wait=True):

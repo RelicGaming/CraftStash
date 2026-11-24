@@ -51,7 +51,7 @@ Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status
 | `BACKUP_KEEP` | 7 | Daily database snapshots to keep, 0 = off |
 | `SECRET_KEY` | auto | Session signing key; generated into the volume if empty |
 | `UPLOADS_DIR` / `PHOTOS_DIR` / `BACKUP_DIR` / `TMP_DIR` | under `/data` | Put a folder on its own volume or host folder; see [Storage](#storage) |
-| `DATABASE_URL` | empty (SQLite) | An external PostgreSQL database; see [Database](#database). Also `DB_TYPE`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `DB_CONNECT_TIMEOUT` |
+| `DATABASE_URL` | empty (SQLite) | An external PostgreSQL or MariaDB/MySQL database; see [Database](#database). Also `DB_TYPE`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `DB_CONNECT_TIMEOUT` |
 | `CHOWN` | auto | `auto` fixes ownership only where it is wrong, `always` every start, `never` leaves it alone (NAS shares) |
 | `IMAGE` | craft-stash:latest | Set to `ghcr.io/<you>/craftstash:latest` to pull the CI image. Every build is also tagged `:sha-<commit>`, so you can pin or roll back to one |
 
@@ -95,25 +95,34 @@ Map the folder and set its setting, e.g. in `docker-compose.yml`:
 
 ## Database
 Craft Stash uses SQLite in `/data` unless told otherwise. That needs no setup and suits a household. To use a
-PostgreSQL 13+ server you already run, create an empty database and user for it:
+PostgreSQL 13+ or MariaDB 10.6+ / MySQL 8.0.13+ server you already run, create an empty database and user for it:
 
 ```sql
+-- PostgreSQL
 CREATE USER craftstash WITH PASSWORD 'choose-one';
 CREATE DATABASE craftstash OWNER craftstash;
+-- MariaDB / MySQL
+CREATE DATABASE craftstash CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE USER 'craftstash'@'%' IDENTIFIED BY 'choose-one';
+GRANT ALL PRIVILEGES ON craftstash.* TO 'craftstash'@'%';
 ```
 
 and point the app at it, either with one setting:
 
 ```
 DATABASE_URL=postgresql://craftstash:choose-one@192.168.1.20:5432/craftstash
+DATABASE_URL=mysql://craftstash:choose-one@192.168.1.20:3306/craftstash        # MariaDB or MySQL
 ```
 
-or with `DB_TYPE=postgres`, `DB_HOST`, `DB_PORT` (5432), `DB_NAME`, `DB_USER` and `DB_PASSWORD`. `DB_PASSWORD_FILE` (and
+or with `DB_TYPE` (`postgres`, `mariadb` or `mysql`), `DB_HOST`, `DB_PORT` (5432 / 3306), `DB_NAME`, `DB_USER` and
+`DB_PASSWORD`. `DB_PASSWORD_FILE` (and
 `DATABASE_URL_FILE`) read the value from a file instead, for Docker secrets. `DB_SSLMODE` sets TLS (`require`,
 `verify-full`, ...). At startup the app waits up to `DB_CONNECT_TIMEOUT` seconds (60) for the server, creates its tables,
 and logs which database it is using (`[db] postgres (craftstash@192.168.1.20:5432/craftstash)`, never the password).
-The `nocase` collation it creates needs a PostgreSQL built with ICU, which the official images and distribution
-packages are. `/data` is still needed for the secret key, and for photos and files unless they are
+On PostgreSQL, the `nocase` collation it creates needs a build with ICU, which the official images and
+distribution packages are. On MariaDB/MySQL, usernames and storage places compare ignoring case
+(`utf8mb4_unicode_ci`) and everything else exactly, as on SQLite. If the account may not create triggers (common with
+binary logging on), the log says so once; nothing is lost, as the app keeps the rule the trigger backs up. `/data` is still needed for the secret key, and for photos and files unless they are
 [mapped elsewhere](#storage). Run one copy of the app.
 
 **Moving to another database.** Stop the app, then copy everything across with the old setting still in place:
@@ -128,7 +137,7 @@ same through a file, and work between any two databases.
 
 **Backups** on an external database: the daily snapshots are portable `auto-*.json` exports in `BACKUP_DIR`, and the full
 backup zip holds `craft-dump.json` instead of `craft.db`. `manage.py restore` takes either kind of backup, from either
-kind of database. Your database server's own backups (`pg_dump`) work too.
+kind of database. Your database server's own backups (`pg_dump`, `mariadb-dump`) work too.
 
 ## API and Home Assistant
 Make a token under **Account → API tokens**. A token acts as you, so it sees exactly what you see. It is **read only** unless you choose **Read and write**, and only a hash of it is stored, so copy it when it's shown. Revoke a token there to cut off whatever uses it. A disabled account's tokens stop working too.
