@@ -5,7 +5,7 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 - [Choose your setup](#choose-your-setup)
 - [Install](#install): [docker run](#docker-run) · [Docker Compose](#docker-compose) · [Dockhand](#dockhand) · [Unraid](#unraid) · [Portainer](#portainer)
 - [First start](#first-start)
-- [Storage](#storage) · [Database](#database) · [Reverse proxy](#reverse-proxy)
+- [Storage](#storage) · [Database](#database) · [Reverse proxy](#reverse-proxy) · [Single sign-on](#single-sign-on)
 - [Environment variables](#environment-variables)
 - [Backups and restore](#backups-and-restore) · [API and Home Assistant](#api-and-home-assistant) · [Self-test](#self-test)
 - [Troubleshooting](#troubleshooting) · [Development](#development)
@@ -32,6 +32,7 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 | It under a path, `https://example.com/craft/` | any proxy | `URL_PREFIX=/craft` |
 | A PostgreSQL / MariaDB server you already run | any install | `DATABASE_URL` |
 | A database container started for you | Compose | `COMPOSE_PROFILES=postgres` (or `mariadb`), `DB_TYPE`, `DB_PASSWORD` |
+| Log in with Authentik, Authelia, Keycloak, Google... | any install | `OIDC_ENABLED` and friends ([Single sign-on](#single-sign-on)) |
 | Changes from git deployed for you | [Dockhand](#dockhand) or [Portainer](#portainer) (git stack) | `IMAGE` |
 
 The image is `ghcr.io/relicgaming/craftstash:latest` (built by CI on every push to `main`; each build is also tagged
@@ -313,6 +314,50 @@ Ready-to-adapt configs, each with the upload limit and timeouts set, are in [`de
 may strip the prefix or pass it through; links, static files, redirects and the session cookie all follow it. A
 trusted proxy that sends `X-Forwarded-Prefix` works without `URL_PREFIX`.
 
+## Single sign-on
+Craft Stash can log people in through any OpenID Connect provider: Authentik, Authelia, Keycloak, Pocket ID, Zitadel,
+Kanidm, Google, Microsoft Entra and so on. Passwords keep working alongside it.
+
+1. **At the provider**, create an application / client for Craft Stash: type *confidential* (a client secret), grant
+   *authorization code*, scopes `openid profile email`, and the redirect URI
+   `https://craft.example.com/login/sso/callback` (with your `URL_PREFIX` in front of `/login`, if you use one).
+2. **On the app**, set:
+
+   ```
+   OIDC_ENABLED=1
+   OIDC_ISSUER=https://auth.example.com/application/o/craft-stash     # the provider's issuer URL (see below)
+   OIDC_CLIENT_ID=craft-stash
+   OIDC_CLIENT_SECRET=...                                            # or OIDC_CLIENT_SECRET_FILE
+   OIDC_NAME=Authentik                                               # the button says "Log in with Authentik"
+   ```
+
+   Behind a proxy, also set `OIDC_REDIRECT_URI` to the exact address registered in step 1 (or make sure
+   `TRUST_PROXY` is right, so the app knows its public `https://` address).
+
+The issuer URL is the address whose `/.well-known/openid-configuration` the provider publishes, e.g.
+Authentik `https://auth.example.com/application/o/<slug>`, Keycloak `https://auth.example.com/realms/<realm>`,
+Authelia and Pocket ID `https://auth.example.com`, Google `https://accounts.google.com`.
+
+**Who gets in.** A provider account is tied to one Craft Stash user by its issuer and subject (never by name alone):
+- **Existing users** log in with their password once, then **Account → Link** the provider. From then on the button
+  works for them. They can unlink it there too.
+- **New people**: with `OIDC_AUTO_PROVISION=1`, the first SSO login creates an account, named from
+  `OIDC_USERNAME_CLAIM` (default `preferred_username`; `email` uses the part before the @). The very first account of
+  a fresh install becomes the admin, as with sign-up. Leave it at `0` (the default) to let only linked accounts in,
+  which is the right choice for public providers like Google, where anyone has an account.
+- **Same username already here, not linked:** refused with a message to log in with the password and link, so a
+  provider account can't take over a local one just by having the same name. If your provider's usernames are
+  controlled by you (users can't pick their own), `OIDC_LINK_EXISTING=1` links them automatically instead.
+- Disabled accounts can't log in either way, and the API still needs a token: an SSO session can't call `/api/`.
+
+**How it's checked.** The authorization code flow with PKCE (S256), a random `state` (tied to the session, valid for
+10 minutes) and `nonce`. The code is exchanged directly with the provider's token endpoint over HTTPS, with the client
+secret, and the ID token's issuer, audience/`azp`, expiry, issue time and nonce are verified. Its signature isn't checked:
+OpenID Connect allows relying on the TLS connection to the token endpoint instead (Core 3.1.3.7), which keeps extra
+cryptography libraries out of the image. So the issuer must be `https://` (plain `http://` only for `localhost`), and
+the container must trust the provider's certificate. A provider with a private CA needs that CA in the container, e.g.
+by mounting it and setting `SSL_CERT_FILE`.
+
 ## Environment variables
 Set them in `.env` (Compose), the stack variables (Dockhand, Portainer), the template (Unraid) or `-e` (docker run).
 Empty means the default. A setting ending in `_FILE` reads the value from that file (Docker secrets): `SECRET_KEY_FILE`,
@@ -364,6 +409,20 @@ Empty means the default. A setting ending in `_FILE` reads the value from that f
 | `DB_PASSWORD` | empty | text | | Or `DB_PASSWORD_FILE` |
 | `DB_SSLMODE` | empty | `disable`, `prefer`, `require`, `verify-full` | `require` | TLS to the server |
 | `DB_CONNECT_TIMEOUT` | `60` | seconds | `120` | How long startup waits for the server |
+
+### Single sign-on
+| Variable | Default | Allowed | Example | Notes |
+|---|---|---|---|---|
+| `OIDC_ENABLED` | `0` | `0`, `1` | `1` | Show "Log in with ..." and accept SSO logins |
+| `OIDC_ISSUER` | empty | `https://` URL | `https://auth.example.com/realms/home` | Required when enabled |
+| `OIDC_CLIENT_ID` | empty | text | `craft-stash` | Required when enabled |
+| `OIDC_CLIENT_SECRET` | empty | text | | Required when enabled. Or `OIDC_CLIENT_SECRET_FILE` |
+| `OIDC_SCOPES` | `openid profile email` | space-separated, with `openid` | `openid profile email groups` | |
+| `OIDC_REDIRECT_URI` | worked out from the request | full URL | `https://craft.example.com/login/sso/callback` | Must match the provider exactly |
+| `OIDC_USERNAME_CLAIM` | `preferred_username` | claim name | `email` | Username for new accounts |
+| `OIDC_AUTO_PROVISION` | `0` | `0`, `1` | `1` | Create accounts at first SSO login |
+| `OIDC_LINK_EXISTING` | `0` | `0`, `1` | `1` | Link a same-named local account automatically (only for providers whose usernames you control) |
+| `OIDC_NAME` | `single sign-on` | text | `Authentik` | Button text |
 
 ### Backups
 | Variable | Default | Allowed | Example | Notes |
@@ -560,6 +619,18 @@ You pointed the app at a new server database while your data is still in SQLite.
 The server isn't reachable from the container. Check `DB_HOST` resolves from inside it (a container name only works
 on a shared Docker network; otherwise use the host's IP), the port, user and password, and the server's access rules
 (`pg_hba.conf`, `'user'@'%'`). A slow first start of a database container may need a longer `DB_CONNECT_TIMEOUT`.
+</details>
+
+<details>
+<summary><strong>Single sign-on fails: "set up wrongly", "can't be reached" or "couldn't be verified"</strong></summary>
+
+`docker logs craft-stash` has a `[sso]` line with the reason. **Set up wrongly**: `OIDC_ISSUER` must be exactly the
+`issuer` in the provider's `/.well-known/openid-configuration` (watch the trailing path, e.g. Keycloak's
+`/realms/<realm>`). **Can't be reached**: the container can't connect to the provider, or doesn't trust its certificate
+(a private CA needs `SSL_CERT_FILE`). **Refused** after the login: the redirect URI registered at the provider must
+match `OIDC_REDIRECT_URI` (or the address the app works out) exactly, including `https` and any `URL_PREFIX`.
+**Couldn't be verified**: usually the clock on the server or provider is more than two minutes off, or the client ID
+is wrong.
 </details>
 
 <details>

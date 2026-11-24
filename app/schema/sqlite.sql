@@ -45,3 +45,6 @@ CREATE VIEW IF NOT EXISTS stock AS
   FROM items i JOIN types t ON t.id = i.type_id JOIN pools p ON p.id = t.pool_id;
 CREATE TABLE IF NOT EXISTS api_tokens(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users ON DELETE CASCADE, name TEXT NOT NULL, hash TEXT UNIQUE NOT NULL, can_write INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL DEFAULT (datetime('now')), last_used TEXT);
 CREATE INDEX IF NOT EXISTS ix_api_tokens_user ON api_tokens(user_id);
+-- Single sign-on: which provider account (issuer + subject) logs in as which user.
+CREATE TABLE IF NOT EXISTS user_identities(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users ON DELETE CASCADE, issuer TEXT NOT NULL, subject TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(issuer, subject));
+CREATE INDEX IF NOT EXISTS ix_user_identities_user ON user_identities(user_id);
