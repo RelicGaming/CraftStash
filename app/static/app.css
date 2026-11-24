@@ -180,3 +180,10 @@ input[type=range].hsl-r::-moz-range-track{background:transparent}
 input.bought{width:110px;margin-top:6px}
 .used-amount{display:flex;align-items:center;gap:6px;flex:none}.used-amount input{width:90px}
 .places .inline{flex-wrap:nowrap}.places .inline>input{min-width:0;flex:1 1 0}.places .inline>input[name=place_qty]{flex:0 0 84px}.places .inline>span{flex:none}
+.step-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:10px}
+.step-photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;display:block;border:1px solid var(--line)}
+.step-photos.edit-photos form{display:flex;flex-direction:column;gap:4px;margin:0}
+@media print{.step-photos{grid-template-columns:repeat(3,1fr)}.step-photos.edit-photos{display:none}}
+input[type=file]{max-width:100%;min-width:0}
+.step-photos.edit-photos{grid-template-columns:repeat(auto-fill,minmax(72px,1fr))}
+.step input[type=file]{flex:none}

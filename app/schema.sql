@@ -16,6 +16,8 @@ CREATE INDEX IF NOT EXISTS ix_assign_project ON assignments(project_id);
 CREATE INDEX IF NOT EXISTS ix_assign_item ON assignments(item_id);
 CREATE INDEX IF NOT EXISTS ix_files_project ON files(project_id);
 CREATE INDEX IF NOT EXISTS ix_steps_project ON steps(project_id);
+CREATE TABLE IF NOT EXISTS step_photos(id INTEGER PRIMARY KEY, step_id INTEGER NOT NULL REFERENCES steps ON DELETE CASCADE, stored TEXT NOT NULL, size INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_step_photos_step ON step_photos(step_id);
 CREATE INDEX IF NOT EXISTS ix_activity_pool ON activity(pool_id, id);
 CREATE INDEX IF NOT EXISTS ix_pool_shares_user ON pool_shares(user_id);
 CREATE INDEX IF NOT EXISTS ix_project_shares_user ON project_shares(user_id);

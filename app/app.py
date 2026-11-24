@@ -140,12 +140,18 @@ def purge_photos(where, *a):
     for r in q("""SELECT i.photo FROM items i JOIN types t ON t.id=i.type_id JOIN pools p ON p.id=t.pool_id
                   WHERE i.photo<>'' AND """ + where, *a): (PHOTOS / r["photo"]).unlink(missing_ok=True)
 
+def purge_step_photos(where, *a):   # where is on p (projects) and s (steps)
+    for r in q("SELECT sp.stored FROM step_photos sp JOIN steps s ON s.id=sp.step_id JOIN projects p ON p.id=s.project_id WHERE " + where, *a):
+        (PHOTOS / r["stored"]).unlink(missing_ok=True)
+
 def drop_reservations(pool_id, user_id):   # someone lost access to a collection: their open reservations on it go too
     run("""DELETE FROM assignments WHERE consumed=0 AND project_id IN (SELECT id FROM projects WHERE user_id=?)
            AND item_id IN (SELECT i.id FROM items i JOIN types t ON t.id=i.type_id WHERE t.pool_id=?)""", user_id, pool_id)
 
 def used_bytes(user_id):
-    return db().execute("SELECT COALESCE(SUM(f.size),0) FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=?", (user_id,)).fetchone()[0]
+    return db().execute("""SELECT (SELECT COALESCE(SUM(f.size),0) FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=?)
+                                + (SELECT COALESCE(SUM(sp.size),0) FROM step_photos sp JOIN steps s ON s.id=sp.step_id
+                                   JOIN projects p ON p.id=s.project_id WHERE p.user_id=?)""", (user_id, user_id)).fetchone()[0]
 
 def save_photo(f):
     """Re-encode an uploaded image as a small JPEG: strips metadata and anything hidden in the file."""
@@ -340,7 +346,7 @@ def admin_delete(id):
     admin_only(); get("SELECT 1 FROM users WHERE id=?", id)
     if id == uid(): flash("You can't delete yourself.")
     else:
-        purge_files("p.user_id=?", id); purge_photos("p.user_id=?", id); run("DELETE FROM users WHERE id=?", id)
+        purge_files("p.user_id=?", id); purge_photos("p.user_id=?", id); purge_step_photos("p.user_id=?", id); run("DELETE FROM users WHERE id=?", id)
     return redirect(url_for("admin"))
 
 @app.post("/admin/signups")
@@ -868,7 +874,8 @@ def project(id):
     return render_template("project.html", p=pr, mine=mine, assigned=assigned, avail=avail, shares=shares,
                            hexes=list(dict.fromkeys(a["hex"] for a in assigned if a["hex"])),
                            cost=sum(a["qty"] * a["price"] for a in assigned if a["price"] is not None),
-                           steps=q("SELECT * FROM steps WHERE project_id=? ORDER BY pos", id),
+                           steps=q("SELECT * FROM steps WHERE project_id=? ORDER BY pos", id), max_photos=STEP_PHOTOS,
+                           photos=photos_by_step(id),
                            files=q("SELECT * FROM files WHERE project_id=? ORDER BY name", id))
 
 @app.post("/projects/<int:id>/update")
@@ -957,11 +964,19 @@ def copy_project(id):
         notes = (notes + "\n\n" if notes else "") + "Materials from the original:\n" + "\n".join(lines)
     nid = d.execute("INSERT INTO projects(user_id,name,notes,status) VALUES(?,?,?,?)",
                     (uid(), name[:100], notes[:5000], "template" if to_template else "planned")).lastrowid
-    d.execute("INSERT INTO steps(project_id,pos,title,body) SELECT ?,pos,title,body FROM steps WHERE project_id=?", (nid, id))
     if mine: d.execute(f"""INSERT INTO assignments(project_id,item_id,qty) SELECT ?, a.item_id, a.qty FROM assignments a
                            JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND {CAN_EDIT}""", (nid, id, uid()))
     over = missing = 0; copied = []
     try:
+        for s in q("SELECT * FROM steps WHERE project_id=? ORDER BY pos", id):
+            sid = d.execute("INSERT INTO steps(project_id,pos,title,body) VALUES(?,?,?,?)", (nid, s["pos"], s["title"], s["body"])).lastrowid
+            for ph in q("SELECT * FROM step_photos WHERE step_id=? ORDER BY id", s["id"]):
+                if QUOTA and used_bytes(uid()) + ph["size"] > QUOTA: over += 1; continue
+                stored = uuid.uuid4().hex + ".jpg"
+                try: shutil.copyfile(PHOTOS / ph["stored"], PHOTOS / stored)
+                except FileNotFoundError: missing += 1; continue
+                copied.append("photos/" + stored)
+                d.execute("INSERT INTO step_photos(step_id,stored,size) VALUES(?,?,?)", (sid, stored, ph["size"]))
         for f in q("SELECT * FROM files WHERE project_id=?", id):
             if QUOTA and used_bytes(uid()) + f["size"] > QUOTA: over += 1; continue
             stored = uuid.uuid4().hex + "." + f["stored"].rsplit(".", 1)[-1]
@@ -988,7 +1003,7 @@ def leave_project(id):
 
 @app.post("/projects/<int:id>/delete")
 def del_project(id):
-    project_of(id, True); purge_files("p.id=?", id); run("DELETE FROM projects WHERE id=?", id)
+    project_of(id, True); purge_files("p.id=?", id); purge_step_photos("p.id=?", id); run("DELETE FROM projects WHERE id=?", id)
     return redirect(url_for("projects"))
 
 @app.post("/projects/<int:id>/share")
@@ -1007,10 +1022,12 @@ def unshare_project(id, user):
 @app.post("/projects/<int:id>/steps")
 def add_step(id):
     project_of(id, True)
-    if clean("title", 100) or clean("body", 3000):
-        run("""INSERT INTO steps(project_id,pos,title,body)
-               VALUES(?, COALESCE((SELECT MAX(pos) FROM steps WHERE project_id=?),0)+1, ?, ?)""",
-            id, id, clean("title", 100), clean("body", 3000))
+    if clean("title", 100) or clean("body", 3000) or any(u.filename for u in request.files.getlist("photos")):
+        c = run("""INSERT INTO steps(project_id,pos,title,body)
+                   VALUES(?, COALESCE((SELECT MAX(pos) FROM steps WHERE project_id=?),0)+1, ?, ?)""",
+                id, id, clean("title", 100), clean("body", 3000))
+        if not add_step_photos({"id": c.lastrowid}) and not (clean("title", 100) or clean("body", 3000)):
+            run("DELETE FROM steps WHERE id=?", c.lastrowid)          # only photos, and none of them could be saved
     return redirect(url_for("project", id=id) + "#steps")
 
 @app.post("/steps/<int:sid>/update")
@@ -1019,9 +1036,50 @@ def update_step(sid):
     run("UPDATE steps SET title=?, body=? WHERE id=?", clean("title", 100), clean("body", 3000), sid)
     return redirect(url_for("project", id=s["project_id"]) + "#steps")
 
+STEP_PHOTOS = 6
+
+def photos_by_step(project_id):
+    out = {}
+    for r in q("SELECT sp.id, sp.step_id FROM step_photos sp JOIN steps s ON s.id=sp.step_id WHERE s.project_id=? ORDER BY sp.id", project_id):
+        out.setdefault(r["step_id"], []).append(r)
+    return out
+
+def add_step_photos(s):
+    """Save the photos uploaded with a step form (field "photos"). Returns how many were saved."""
+    have = db().execute("SELECT COUNT(*) FROM step_photos WHERE step_id=?", (s["id"],)).fetchone()[0]; saved = bad = 0
+    ups = [u for u in request.files.getlist("photos") if u and u.filename]
+    for up in ups:
+        if have + saved >= STEP_PHOTOS: flash(f"A step can have up to {STEP_PHOTOS} photos."); break
+        name = save_photo(up)
+        if not name: bad += 1; continue
+        size = (PHOTOS / name).stat().st_size
+        if QUOTA and used_bytes(uid()) + size > QUOTA:
+            (PHOTOS / name).unlink(); flash(f"That would go over your {QUOTA // 1048576} MB storage limit."); break
+        run("INSERT INTO step_photos(step_id,stored,size) VALUES(?,?,?)", s["id"], name, size); saved += 1
+    if bad: flash(f"{bad} photo(s) couldn't be read. Use JPEG, PNG, WebP or GIF images.")
+    return saved
+
+@app.post("/steps/<int:sid>/photos")
+def step_photos_add(sid):
+    s = step_of(sid); add_step_photos(s)
+    return redirect(url_for("project", id=s["project_id"]) + f"#step-{sid}")
+
+@app.get("/step-photos/<int:pid>")
+def step_photo(pid):
+    ph = get("SELECT sp.*, s.project_id FROM step_photos sp JOIN steps s ON s.id=sp.step_id WHERE sp.id=?", pid)
+    project_of(ph["project_id"])
+    r = send_from_directory(PHOTOS, ph["stored"], mimetype="image/jpeg"); r.headers["Cache-Control"] = "private, max-age=3600"
+    return r
+
+@app.post("/step-photos/<int:pid>/delete")
+def step_photo_delete(pid):
+    ph = get("SELECT * FROM step_photos WHERE id=?", pid); s = step_of(ph["step_id"])
+    (PHOTOS / ph["stored"]).unlink(missing_ok=True); run("DELETE FROM step_photos WHERE id=?", pid)
+    return redirect(url_for("project", id=s["project_id"]) + f"#step-{s['id']}")
+
 @app.post("/steps/<int:sid>/delete")
 def delete_step(sid):
-    s = step_of(sid); run("DELETE FROM steps WHERE id=?", sid)
+    s = step_of(sid); purge_step_photos("s.id=?", sid); run("DELETE FROM steps WHERE id=?", sid)
     return redirect(url_for("project", id=s["project_id"]) + "#steps")
 
 @app.post("/steps/<int:sid>/move")

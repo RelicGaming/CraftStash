@@ -26,16 +26,20 @@
 <input name="qty" type="number" step="any" min="0" placeholder="Amount" required aria-label="Amount" style="flex:1 1 90px"><button class="btn">Assign</button></form>{% endif %}</section>
 
 <section class="panel" id="steps"><div class="panel-head"><h2>Steps</h2></div>
-{% if steps %}<ol class="steps">{% for s in steps %}<li class="step"><div>{% if s.title %}<strong>{{ s.title }}</strong>{% endif %}<div class="step-body">{{ s.body }}</div>
+{% if steps %}<ol class="steps">{% for s in steps %}{% set sp = photos.get(s.id, []) %}<li class="step" id="step-{{ s.id }}"><div>{% if s.title %}<strong>{{ s.title }}</strong>{% endif %}<div class="step-body">{{ s.body }}</div>
+{% if sp %}<div class="step-photos">{% for ph in sp %}<a href="{{ url_for('step_photo', pid=ph.id) }}" target="_blank" rel="noopener"><img src="{{ url_for('step_photo', pid=ph.id) }}" alt="Step photo {{ loop.index }}" loading="lazy"></a>{% endfor %}</div>{% endif %}
 {% if mine %}<details class="edit noprint"><summary>Edit step</summary>
 <form method="post" action="{{ url_for('update_step', sid=s.id) }}">{{ csrf }}<input name="title" value="{{ s.title }}" maxlength="100" placeholder="Title" aria-label="Title"><textarea name="body" rows="3" maxlength="3000" aria-label="Instructions">{{ s.body }}</textarea>
 <div class="actions"><button class="btn sm">Save step</button></div></form>
+{% if sp %}<div class="step-photos edit-photos">{% for ph in sp %}<form method="post" action="{{ url_for('step_photo_delete', pid=ph.id) }}" data-confirm="Remove this photo?">{{ csrf }}<img src="{{ url_for('step_photo', pid=ph.id) }}" alt="" loading="lazy"><button class="btn ghost danger sm">Remove</button></form>{% endfor %}</div>{% endif %}
+{% if sp|length < max_photos %}<form class="inline" method="post" action="{{ url_for('step_photos_add', sid=s.id) }}" enctype="multipart/form-data" style="margin-top:8px">{{ csrf }}<input type="file" name="photos" accept="image/*" multiple aria-label="Add photos to this step"><button class="btn secondary sm">Add photos</button></form>{% endif %}
 <div class="actions" style="margin-top:8px"><form method="post" action="{{ url_for('move_step', sid=s.id) }}">{{ csrf }}<input type="hidden" name="dir" value="up"><button class="btn secondary sm">Move up</button></form>
 <form method="post" action="{{ url_for('move_step', sid=s.id) }}">{{ csrf }}<input type="hidden" name="dir" value="down"><button class="btn secondary sm">Move down</button></form>
 <form method="post" action="{{ url_for('delete_step', sid=s.id) }}" data-confirm="Delete this step?">{{ csrf }}<button class="btn ghost danger sm">Delete</button></form></div></details>{% endif %}</div></li>{% endfor %}</ol>
 {% elif not mine %}<p class="muted">No steps written yet.</p>{% endif %}
-{% if mine %}<form class="stitch noprint" style="border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px" method="post" action="{{ url_for('add_step', id=p.id) }}">{{ csrf }}
+{% if mine %}<form class="stitch noprint" style="border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px" method="post" action="{{ url_for('add_step', id=p.id) }}" enctype="multipart/form-data">{{ csrf }}
 <input name="title" placeholder="Step title (optional)" maxlength="100" aria-label="Step title"><textarea name="body" rows="3" placeholder="What to do in this step" maxlength="3000" aria-label="Instructions"></textarea>
+<label class="field"><span>Photos (optional, up to {{ max_photos }})</span><input type="file" name="photos" accept="image/*" multiple></label>
 <div><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Add step</button></div></form>{% endif %}</section>
 </div><div>
 {% if mine %}<form class="panel noprint" method="post" action="{{ url_for('project_update', id=p.id) }}">{{ csrf }}<div class="panel-head"><h2>Details</h2></div>
