@@ -198,4 +198,10 @@
     });
     box.querySelector('[data-colour-from-photo]')?.addEventListener('click', () => load(preview.src, false));
   });
+  // API token: tap to select, Copy button copies it.
+  document.querySelectorAll('[data-select-all]').forEach(i => i.addEventListener('focus', () => i.select()));
+  document.querySelectorAll('[data-copy-token]').forEach(b => b.addEventListener('click', async () => {
+    const i = b.parentElement.querySelector('input'); i.select();
+    try { await navigator.clipboard.writeText(i.value); b.textContent = 'Copied'; } catch (e) { b.textContent = document.execCommand('copy') ? 'Copied' : 'Selected: copy it'; }
+  }));
 })();

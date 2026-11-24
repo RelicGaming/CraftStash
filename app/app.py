@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import (Flask, Response, abort, after_this_request, flash, g, redirect, render_template, request,
-                   send_file, send_from_directory, session, url_for)
+                   jsonify, make_response, send_file, send_from_directory, session, url_for)
+from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 from markupsafe import Markup
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -188,6 +189,7 @@ def valid_account(name, pw):
 @app.before_request
 def gate():
     if request.endpoint in ("healthz", "static"): return
+    if request.path.startswith("/api/"): return api_gate()
     session.setdefault("csrf", secrets.token_hex(16))
     g.user = None
     if "uid" in session:
@@ -205,6 +207,7 @@ def gate():
 def headers(r):
     r.headers["X-Content-Type-Options"] = "nosniff"
     r.headers["Referrer-Policy"] = "same-origin"
+    if request.path.startswith("/api/"): r.headers["Cache-Control"] = "no-store"
     if r.mimetype == "text/html":       # not on files, so the browser's PDF viewer keeps working
         r.headers["Content-Security-Policy"] = CSP; r.headers["X-Frame-Options"] = "DENY"
         r.headers.setdefault("Cache-Control", "private, no-cache")
@@ -778,21 +781,26 @@ def safe_next(default):
 
 @app.post("/items/<int:iid>/adjust")
 def item_adjust(iid):
-    i = item_of(iid, True); n = num(request.form.get("amount"))
-    pl = db().execute("SELECT * FROM item_places WHERE item_id=? AND place=?", (iid, request.form.get("place") or "")).fetchone()
-    if n > 0:
-        add = request.form.get("action") == "add"
-        if pl and not add: n = min(n, pl["qty"])           # can't take more from a place than it holds
-        new = max(0.0, i["qty"] + (n if add else -n))
-        if pl:                                             # change the place first, so the total never drops below the places
-            if add: db().execute("UPDATE item_places SET qty=qty+? WHERE id=?", (n, pl["id"]))
-            else:
-                db().execute("UPDATE item_places SET qty=qty-? WHERE id=?", (n, pl["id"]))
-                db().execute("DELETE FROM item_places WHERE id=? AND qty<1e-9", (pl["id"],))
-        run("UPDATE items SET qty=? WHERE id=?", new, iid)
-        where = f" {'to' if add else 'from'} {pl['place']}" if pl else ""
-        log(i["pool_id"], "adjust", f"{'Added' if add else 'Used'} {n:g} {i['unit']} of {i['name']}{where} ({i['qty']:g} to {new:g})", iid, new - i["qty"])
+    i = item_of(iid, True)
+    adjust_stock(i, num(request.form.get("amount")), request.form.get("action") == "add", request.form.get("place") or "")
     return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
+
+def adjust_stock(i, n, add, place=""):
+    """Use or add n of a stock row i, optionally at one of its other places. Returns the new total."""
+    if n <= 0: return i["qty"]
+    iid = i["id"]
+    pl = db().execute("SELECT * FROM item_places WHERE item_id=? AND place=?", (iid, place)).fetchone() if place else None
+    if pl and not add: n = min(n, pl["qty"])               # can't take more from a place than it holds
+    new = max(0.0, i["qty"] + (n if add else -n))
+    if pl:                                                 # change the place first, so the total never drops below the places
+        if add: db().execute("UPDATE item_places SET qty=qty+? WHERE id=?", (n, pl["id"]))
+        else:
+            db().execute("UPDATE item_places SET qty=qty-? WHERE id=?", (n, pl["id"]))
+            db().execute("DELETE FROM item_places WHERE id=? AND qty<1e-9", (pl["id"],))
+    run("UPDATE items SET qty=? WHERE id=?", new, iid)
+    where = f" {'to' if add else 'from'} {pl['place']}" if pl else ""
+    log(i["pool_id"], "adjust", f"{'Added' if add else 'Used'} {n:g} {i['unit']} of {i['name']}{where} ({i['qty']:g} to {new:g})", iid, new - i["qty"])
+    return new
 
 @app.post("/items/<int:iid>/move")
 def item_move(iid):
@@ -878,7 +886,29 @@ def account():
             h = generate_password_hash(new); run("UPDATE users SET pw=? WHERE id=?", h, uid()); session["pwv"] = pwv(h)
             flash("Password updated. Other devices have been signed out.")
         return redirect(url_for("account"))
-    return render_template("account.html")
+    return account_page()
+
+def account_page(new_token=None, new_name=""):
+    tokens = q("SELECT id, name, can_write, created, last_used FROM api_tokens WHERE user_id=? ORDER BY id DESC", uid())
+    return render_template("account.html", tokens=tokens, new_token=new_token, new_name=new_name, when=local_time,
+                           api_base=url_for("api_index", _external=True))
+
+API_TOKENS_PER_USER = 20
+
+@app.post("/account/tokens")
+def new_token():
+    name = clean("name", 60) or "API token"
+    if db().execute("SELECT COUNT(*) FROM api_tokens WHERE user_id=?", (uid(),)).fetchone()[0] >= API_TOKENS_PER_USER:
+        flash(f"You can have at most {API_TOKENS_PER_USER} tokens. Revoke one you no longer use."); return redirect(url_for("account"))
+    tok = API_PREFIX + secrets.token_urlsafe(32)
+    run("INSERT INTO api_tokens(user_id,name,hash,can_write) VALUES(?,?,?,?)", uid(), name, token_hash(tok), int(request.form.get("access") == "write"))
+    r = make_response(account_page(tok, name)); r.headers["Cache-Control"] = "no-store"   # shown once, never stored
+    return r
+
+@app.post("/account/tokens/<int:tid>/delete")
+def del_token(tid):
+    run("DELETE FROM api_tokens WHERE id=? AND user_id=?", tid, uid()); flash("Token revoked. Anything using it can no longer connect.")
+    return redirect(url_for("account"))
 
 # ---------- projects ----------
 @app.get("/projects")
@@ -1160,3 +1190,193 @@ def del_file(fid):
     (UPLOADS / f["stored"]).unlink(missing_ok=True)
     run("DELETE FROM files WHERE id=?", fid)
     return redirect(url_for("project", id=f["project_id"]))
+
+# ---------- JSON API (for Home Assistant and other tools) ----------
+# Every request sends "Authorization: Bearer <token>". Tokens are made on the account page, act as that user (so they
+# see exactly what the user sees), and are read-only unless created with write access. Only a SHA-256 of each is stored.
+API_PREFIX = "cs_"
+
+def token_hash(t): return hashlib.sha256(t.encode()).hexdigest()
+
+def api_error(status, message): return jsonify(error=message), status
+
+def api_gate():
+    g.user, g.api_write = None, False
+    auth = request.headers.get("Authorization", "")
+    tok = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+    ip = request.remote_addr or "?"; key = f"api:{ip}"   # per address, so nobody can lock everyone out
+    if throttled(ip, key): return api_error(429, "Too many failed attempts. Wait a few minutes and try again.")
+    row = db().execute("""SELECT t.id AS tid, t.can_write, u.* FROM api_tokens t JOIN users u ON u.id=t.user_id
+                          WHERE t.hash=?""", (token_hash(tok),)).fetchone() if tok.startswith(API_PREFIX) else None
+    if not row or not row["active"]:
+        if tok: record_fail(ip, key)
+        r = jsonify(error="Send a valid API token: Authorization: Bearer <token>. Make one on your account page.")
+        r.status_code = 401; r.headers["WWW-Authenticate"] = 'Bearer realm="craft-stash"'; return r
+    g.user, g.api_write = row, bool(row["can_write"])
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not g.api_write:
+        return api_error(403, "This token is read-only. Make one with write access to change stock.")
+    db().execute("UPDATE api_tokens SET last_used=datetime('now') WHERE id=? AND (last_used IS NULL OR last_used < datetime('now','-60 seconds'))",
+                 (row["tid"],)); db().commit()
+
+@app.errorhandler(HTTPException)
+def http_error(e):
+    if request.path.startswith("/api/"):
+        return api_error(e.code or 500, {404: "Not found, or this token can't see it.", 405: "Method not allowed."}.get(e.code, e.description))
+    return e
+
+def body():
+    """JSON body (or form fields), so curl -d and Home Assistant's rest_command both work."""
+    return request.get_json(silent=True) if request.is_json else request.form.to_dict()
+
+def field_map():
+    return {t["id"]: json.loads(t["fields"]) for t in
+            q("SELECT t.id, t.fields FROM types t JOIN access a ON a.pool_id=t.pool_id WHERE a.user_id=?", uid())}
+
+def item_json(s, fields, places=None):
+    extra = json.loads(s["extra"] or "{}")
+    return {"id": s["id"], "name": s["name"], "colour": s["colour"], "hex": s["hex"] or None, "variant": s["subtype"],
+            "collection": s["pname"], "collection_id": s["pool_id"], "type": s["tname"], "type_id": s["type_id"],
+            "unit": s["unit"], "qty": s["qty"], "free": s["free"], "low_at": s["low_at"], "price": s["price"],
+            "location": s["location"], "status": stock_status(s),
+            "fields": {f["label"]: extra.get(f["id"], "") for f in fields.get(s["type_id"], []) if extra.get(f["id"], "") != ""},
+            "places": [{"place": p["place"], "qty": p["qty"]} for p in (places or [])],
+            "photo_url": url_for("photo", iid=s["id"], _external=True) if s["photo"] else None,
+            "url": url_for("item_edit", iid=s["id"], _external=True)}
+
+def stock_status(s):
+    if s["free"] < 0: return "short"
+    if s["qty"] <= 0: return "out"
+    if s["low_at"] is not None and s["qty"] <= s["low_at"]: return "low"
+    return "ok"
+
+def shopping_rows():
+    return q(f"""SELECT s.*, a.can_edit FROM stock s JOIN access a ON a.pool_id=s.pool_id
+                 WHERE a.user_id=? AND {LOW} ORDER BY s.pname, s.tname, s.name""", uid())
+
+def visible_item(iid, write=False):
+    try: return item_of(iid, write)
+    except HTTPException: return None
+
+@app.get("/api/v1")
+def api_index():
+    return jsonify(version=1, user=g.user["username"], can_write=g.api_write, endpoints=[
+        "GET /api/v1/summary", "GET /api/v1/shopping", "POST /api/v1/shopping/restock",
+        "GET /api/v1/collections", "GET /api/v1/collections/<id>", "GET /api/v1/items?q=&status=",
+        "GET /api/v1/items/<id>", "POST /api/v1/items/<id>/adjust", "GET /api/v1/projects", "GET /api/v1/projects/<id>"])
+
+@app.get("/api/v1/summary")
+def api_summary():
+    """Counts for dashboard sensors."""
+    me = uid()
+    s = db().execute("""SELECT COUNT(*) AS items,
+                               SUM(s.qty<=0) AS out_of_stock,
+                               SUM(s.qty>0 AND s.low_at IS NOT NULL AND s.qty<=s.low_at AND s.free>=0) AS low_stock,
+                               SUM(s.free<0) AS short,
+                               COALESCE(SUM(CASE WHEN s.price IS NOT NULL AND s.qty>0 THEN s.qty*s.price END),0) AS stash_value
+                        FROM stock s JOIN access a ON a.pool_id=s.pool_id WHERE a.user_id=?""", (me,)).fetchone()
+    pr = db().execute("""SELECT SUM(status='planned') AS planned, SUM(status='active') AS active FROM projects
+                         WHERE user_id=? OR id IN (SELECT project_id FROM project_shares WHERE user_id=?)""", (me, me)).fetchone()
+    return jsonify(shopping_list=len(shopping_rows()), items=s["items"], out_of_stock=s["out_of_stock"] or 0,
+                   low_stock=s["low_stock"] or 0, short=s["short"] or 0, stash_value=round(s["stash_value"], 2), currency=currency(),
+                   collections=db().execute("SELECT COUNT(*) FROM access WHERE user_id=?", (me,)).fetchone()[0],
+                   projects_planned=pr["planned"] or 0, projects_active=pr["active"] or 0)
+
+@app.get("/api/v1/shopping")
+def api_shopping():
+    rows, fields = shopping_rows(), field_map()
+    return jsonify(count=len(rows), items=[{**item_json(s, fields), "suggested": suggest(s), "can_edit": bool(s["can_edit"])} for s in rows])
+
+@app.post("/api/v1/shopping/restock")
+def api_restock():
+    """Add bought amounts. Body: {"items": [{"id": 3, "amount": 2}, ...]}, or {"id": 3, "amount": 2}.
+    Leave out the amount to add the suggested amount; {"all": true} restocks every item on the list by its suggestion."""
+    b = body() or {}
+    if b.get("all") in (True, "true", "1", 1):
+        wanted = [{"id": s["id"]} for s in shopping_rows() if s["can_edit"]]
+    else:
+        wanted = b.get("items") if isinstance(b.get("items"), list) else [b] if "id" in b else []
+    if not wanted: return api_error(400, 'Send {"items": [{"id": 3, "amount": 2}]}, {"id": 3}, or {"all": true}.')
+    done, skipped = [], []
+    for w in wanted[:500]:
+        try: iid = int(w.get("id"))
+        except (TypeError, ValueError, AttributeError): skipped.append({"id": None, "reason": "no id"}); continue
+        i = visible_item(iid, True)
+        if not i: skipped.append({"id": iid, "reason": "not found or read-only"}); continue
+        n = num(w.get("amount")) if w.get("amount") not in (None, "") else suggest(i)
+        if n <= 0: skipped.append({"id": iid, "reason": "amount must be more than 0"}); continue
+        new = adjust_stock(i, n, True)
+        done.append({"id": iid, "name": i["name"], "added": n, "qty": new})
+    return jsonify(restocked=done, skipped=skipped, shopping_list=len(shopping_rows()))
+
+@app.get("/api/v1/collections")
+def api_collections():
+    rows = q("""SELECT p.id, p.name, p.craft, u.username AS owner, a.can_edit, a.is_owner,
+                (SELECT COUNT(*) FROM items i JOIN types t ON t.id=i.type_id WHERE t.pool_id=p.id) AS items
+                FROM pools p JOIN access a ON a.pool_id=p.id JOIN users u ON u.id=p.user_id
+                WHERE a.user_id=? ORDER BY a.is_owner DESC, p.name COLLATE NOCASE""", uid())
+    return jsonify(collections=[{**dict(r), "can_edit": bool(r["can_edit"]), "is_owner": bool(r["is_owner"])} for r in rows])
+
+@app.get("/api/v1/collections/<int:pid>")
+def api_collection(pid):
+    p = pool_of(pid); fields = field_map(); places = places_in(pid)
+    types = q("SELECT id, name, unit, fields FROM types WHERE pool_id=? ORDER BY name", pid)
+    items = q("SELECT * FROM stock WHERE pool_id=? ORDER BY tname, name COLLATE NOCASE", pid)
+    return jsonify(id=p["id"], name=p["name"], craft=p["craft"], owner=p["owner"], can_edit=bool(p["can_edit"]),
+                   types=[{"id": t["id"], "name": t["name"], "unit": t["unit"],
+                           "fields": [{"label": f["label"], "type": f["type"], "options": f["options"]} for f in json.loads(t["fields"])]} for t in types],
+                   items=[item_json(s, fields, places.get(s["id"])) for s in items])
+
+@app.get("/api/v1/items")
+def api_items():
+    """All items the token can see. ?q= searches like the app does (Label:value works); ?status=low|out|short|ok filters."""
+    term, status = request.args.get("q", "").strip()[:100], request.args.get("status", "")
+    fields = field_map(); sql, args = "SELECT stock.* FROM stock JOIN access a ON a.pool_id=stock.pool_id WHERE a.user_id=?", [uid()]
+    if term: cond, more, _ = match(term, fields); sql += " AND " + cond; args += more
+    rows = q(sql + " ORDER BY stock.pname COLLATE NOCASE, stock.tname COLLATE NOCASE, stock.name COLLATE NOCASE", *args)
+    items = [item_json(s, fields) for s in rows if not status or stock_status(s) == status]
+    return jsonify(count=len(items[:SEARCH_LIMIT]), more=len(items) > SEARCH_LIMIT, items=items[:SEARCH_LIMIT])
+
+@app.get("/api/v1/items/<int:iid>")
+def api_item(iid):
+    i = item_of(iid)
+    return jsonify(item_json(i, field_map(), q("SELECT place, qty FROM item_places WHERE item_id=? ORDER BY place COLLATE NOCASE", iid)))
+
+@app.post("/api/v1/items/<int:iid>/adjust")
+def api_adjust(iid):
+    """Body: {"action": "use" | "add", "amount": 2, "place": "Shelf B"} (place is optional)."""
+    b = body() or {}; i = item_of(iid, True)
+    if b.get("action") not in ("use", "add"): return api_error(400, 'Set "action" to "use" or "add".')
+    n = num(b.get("amount"))
+    if n <= 0: return api_error(400, '"amount" must be a number more than 0.')
+    place = str(b.get("place") or "").strip()[:80]
+    if place and not db().execute("SELECT 1 FROM item_places WHERE item_id=? AND place=?", (iid, place)).fetchone():
+        return api_error(400, f"This item isn't stored at {place!r}. Leave out \"place\" to use the main location.")
+    adjust_stock(i, n, b["action"] == "add", place)
+    return jsonify(item_json(item_of(iid), field_map(), q("SELECT place, qty FROM item_places WHERE item_id=? ORDER BY place COLLATE NOCASE", iid)))
+
+def project_json(p):
+    return {"id": p["id"], "name": p["name"], "status": p["status"], "owner": p["owner"],
+            "url": url_for("project", id=p["id"], _external=True)}
+
+@app.get("/api/v1/projects")
+def api_projects():
+    me = uid()
+    rows = q("""SELECT p.*, u.username AS owner, (SELECT COUNT(*) FROM assignments WHERE project_id=p.id) AS n_items,
+                (SELECT COUNT(*) FROM steps WHERE project_id=p.id) AS n_steps
+                FROM projects p JOIN users u ON u.id=p.user_id
+                WHERE p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?)
+                ORDER BY p.status='template', p.status='done', p.name""", me, me)
+    status = request.args.get("status", "")
+    return jsonify(projects=[{**project_json(r), "materials": r["n_items"], "steps": r["n_steps"]} for r in rows if not status or r["status"] == status])
+
+@app.get("/api/v1/projects/<int:id>")
+def api_project(id):
+    p = project_of(id)
+    mats = q("""SELECT a.qty AS reserved, a.consumed, a.used, s.id, s.name, s.colour, s.unit, s.qty, s.free, s.tname, s.pname
+                FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=? ORDER BY s.tname, s.name""", id)
+    steps = q("SELECT title, body FROM steps WHERE project_id=? ORDER BY pos", id)
+    return jsonify({**project_json(p), "notes": p["notes"],
+                    "materials": [{"item_id": m["id"], "name": m["name"], "colour": m["colour"], "type": m["tname"], "collection": m["pname"],
+                                   "unit": m["unit"], "reserved": m["reserved"], "used": m["used"] if m["consumed"] else None,
+                                   "in_stock": m["qty"], "free": m["free"]} for m in mats],
+                    "steps": [dict(s) for s in steps]})
