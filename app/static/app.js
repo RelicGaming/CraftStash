@@ -14,6 +14,62 @@
   // <button data-print>
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) window.print(); });
 
+  // Colour inputs: phone and tablet browsers often show only a short preset list for <input type=color>,
+  // so every colour input also gets a hex box and hue / saturation / lightness sliders that work everywhere.
+  const toHsl = hex => {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    if (!d) return [0, 0, Math.round(l * 100)];
+    const s = d / (1 - Math.abs(2 * l - 1)), h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [Math.round((h * 60 + 360) % 360), Math.round(s * 100), Math.round(l * 100)];
+  };
+  const toHex = (h, s, l) => {
+    s /= 100; l /= 100; const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const f = n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)))).toString(16).padStart(2, '0');
+    return '#' + f(0) + f(8) + f(4);
+  };
+  const cleanHex = v => { v = v.trim().replace(/^#/, '').toLowerCase(); if (/^[0-9a-f]{3}$/.test(v)) v = [...v].map(c => c + c).join(''); return /^[0-9a-f]{6}$/.test(v) ? '#' + v : null; };
+  document.querySelectorAll('input[type=color]').forEach(c => {
+    const label = c.getAttribute('aria-label') || c.closest('.field')?.querySelector('span')?.textContent || 'Colour';
+    const tools = document.createElement('span'); tools.className = 'colour-tools';
+    const hex = Object.assign(document.createElement('input'), {type: 'text', value: c.value, maxLength: 7, spellcheck: false, autocomplete: 'off', className: 'hex-in'});
+    hex.setAttribute('aria-label', label + ' (hex code)'); hex.setAttribute('autocapitalize', 'off'); hex.placeholder = '#d98ca3';
+    const more = Object.assign(document.createElement('button'), {type: 'button', className: 'btn secondary sm', textContent: 'Sliders'});
+    more.setAttribute('aria-expanded', 'false');
+    const box = document.createElement('div'); box.className = 'hsl'; box.hidden = true;
+    const sliders = [['Hue', 360], ['Saturation', 100], ['Lightness', 100]].map(([name, max]) => {
+      const r = Object.assign(document.createElement('input'), {type: 'range', min: 0, max, step: 1, className: 'hsl-r'});
+      r.setAttribute('aria-label', `${label} ${name.toLowerCase()}`);
+      const row = document.createElement('div'); row.className = 'hsl-row'; row.append(Object.assign(document.createElement('span'), {textContent: name}), r); box.append(row);
+      return r;
+    });
+    tools.append(hex, more); c.after(tools); tools.after(box);
+    const paintTracks = ([h, s, l]) => {
+      sliders[1].style.background = `linear-gradient(90deg, hsl(${h} 0% ${l}%), hsl(${h} 100% ${l}%))`;
+      sliders[2].style.background = `linear-gradient(90deg, #000, hsl(${h} ${s}% 50%), #fff)`;
+    };
+    const sync = from => {
+      const hsl = from === 'sliders' ? sliders.map(r => +r.value) : toHsl(c.value);
+      if (from !== 'hex') hex.value = c.value;
+      if (from !== 'sliders') sliders.forEach((r, i) => r.value = hsl[i]);
+      paintTracks(hsl);
+    };
+    const set = (v, from) => {
+      c.value = v; sync(from);
+      c.dispatchEvent(new Event('input', {bubbles: true}));   // other listeners (theme preview, "show swatch") react as if picked
+    };
+    c.addEventListener('input', e => { if (e.isTrusted) sync('picker'); });
+    c.addEventListener('change', () => sync('picker'));
+    hex.addEventListener('input', () => { const v = cleanHex(hex.value); hex.classList.toggle('bad', !v && hex.value.trim() !== ''); if (v) set(v, 'hex'); });
+    hex.addEventListener('blur', () => { hex.value = c.value; hex.classList.remove('bad'); });
+    sliders.forEach(r => r.addEventListener('input', () => set(toHex(...sliders.map(x => +x.value)), 'sliders')));
+    more.addEventListener('click', () => { box.hidden = !box.hidden; more.setAttribute('aria-expanded', String(!box.hidden)); });
+    sync('init');
+  });
+  // Item form: choosing a swatch colour turns the swatch on.
+  document.querySelectorAll('input[type=color][name=hex]').forEach(c => c.addEventListener('input', () => {
+    const tick = c.form && c.form.elements.has_hex; if (tick) tick.checked = true;
+  }));
+
   // Shopping list: copy as text.
   $('copy')?.addEventListener('click', async e => {
     const t = [...document.querySelectorAll('[data-line]')].map(n => '- ' + n.dataset.line).join('\n');
@@ -36,7 +92,7 @@
     ['bg', 'surface', 'ink', 'accent'].forEach(n => f.elements[n].addEventListener('input', () => { custom(); paint(); }));
     f.elements.mode.addEventListener('change', custom);
     f.querySelectorAll('input[name=theme]').forEach(r => r.addEventListener('change', () => {
-      if (r.dataset.bg) { ['bg', 'surface', 'ink', 'accent'].forEach(n => f.elements[n].value = r.dataset[n]); f.elements.mode.value = r.dataset.mode; paint(); }
+      if (r.dataset.bg) { ['bg', 'surface', 'ink', 'accent'].forEach(n => { f.elements[n].value = r.dataset[n]; f.elements[n].dispatchEvent(new Event('change')); }); f.elements.mode.value = r.dataset.mode; paint(); }
     }));
     paint();
   }
