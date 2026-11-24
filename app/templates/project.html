@@ -1,12 +1,14 @@
 {% extends "base.html" %}{% block title %}{{ p.name }} - Craft Stash{% endblock %}
 {% block body %}
 <a class="back" href="{{ url_for('projects') }}"><svg class="i"><use href="#i-chev-l"/></svg>Projects</a>
-<div class="page-head"><h1>{{ p.name }}</h1><span class="pill {{ {'active':'accent','done':'ok'}.get(p.status,'') }}">{{ p.status|capitalize }}</span><span class="grow"></span>
+<div class="page-head"><h1>{{ p.name }}</h1><span class="pill {{ {'active':'accent','done':'ok','template':'warn'}.get(p.status,'') }}">{{ p.status|capitalize }}</span><span class="grow"></span>
 <div class="actions"><button class="btn secondary" data-print type="button"><svg class="i"><use href="#i-print"/></svg>Print</button>
-<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn secondary">{{ 'Duplicate' if mine else 'Save a copy' }}</button></form>
+{% if p.status == 'template' %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn"><svg class="i"><use href="#i-plus"/></svg>{{ 'Start a project' if mine else 'Save a copy' }}</button></form>
+{% else %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn secondary">{{ 'Duplicate' if mine else 'Save a copy' }}</button></form>
+{% if mine %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<input type="hidden" name="as" value="template"><button class="btn secondary">Save as template</button></form>{% endif %}{% endif %}
 {% if mine and p.status == 'done' %}<form method="post" action="{{ url_for('reopen', id=p.id) }}" data-confirm="Reopen this project?{% if assigned|selectattr('used')|list %} The materials it used go back into stock.{% endif %}">{{ csrf }}<button class="btn secondary">Reopen</button></form>{% endif %}
 {% if not mine %}<form method="post" action="{{ url_for('leave_project', id=p.id) }}">{{ csrf }}<button class="btn ghost danger">Stop following</button></form>{% endif %}
-{% if mine and p.status != 'done' and assigned %}<form method="post" action="{{ url_for('complete', id=p.id) }}" style="display:contents">{{ csrf }}<button class="btn secondary" name="stock" value="keep" data-confirm="Mark as done but leave your stock as it is? Nothing is deducted.">Complete, keep stock</button><button class="btn" name="stock" value="use" data-confirm="Mark as done and deduct the assigned materials from stock?"><svg class="i"><use href="#i-check"/></svg>Mark complete</button></form>{% endif %}</div></div>
+{% if mine and p.status != 'done' and assigned %}<form method="post" action="{{ url_for('complete', id=p.id) }}" style="display:contents">{{ csrf }}<button class="btn secondary" name="stock" value="keep" data-confirm="Mark as done but leave your stock as it is? Nothing is deducted.">Complete, keep stock</button></form><a class="btn" href="{{ url_for('finish', id=p.id) }}"><svg class="i"><use href="#i-check"/></svg>Mark complete</a>{% endif %}</div></div>
 {% if not mine %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Shared by {{ p.owner }}. You can view and print this project but not change it.</span></div>{% endif %}
 {% if p.notes %}<div class="print-only" style="white-space:pre-wrap;margin-bottom:12px">{{ p.notes }}</div>{% endif %}
 <div class="cols"><div>
@@ -14,7 +16,7 @@
 <div class="strip lg">{% for h in hexes %}<i style="--c:{{ h }}"></i>{% endfor %}</div>
 {% for a in assigned %}<div class="list-row"><span class="sw-dot{{ '' if a.hex else ' none' }}" {% if a.hex %}style="--c:{{ a.hex }}"{% endif %}></span>
 <div class="grow"><strong>{{ a.name }}</strong>{% if a.colour %} <span class="muted">{{ a.colour }}</span>{% endif %}<div class="muted small">{{ a.tname }}{% if a.subtype %}, {{ a.subtype }}{% endif %}</div></div>
-<strong>{{ '%g'|format(a.qty) }} {{ a.unit }}</strong>{% if a.consumed %}{% if a.used %}<span class="pill ok">Used</span>{% else %}<span class="pill">Not deducted</span>{% endif %}{% elif mine and a.free < 0 %}<span class="pill bad">Short by {{ '%g'|format(-a.free) }}</span>{% endif %}
+<strong>{{ '%g'|format(a.qty) }} {{ a.unit }}</strong>{% if a.consumed %}{% if a.used %}<span class="pill ok">{% if (a.used - a.qty)|abs > 1e-9 %}Used {{ '%g'|format(a.used) }}{% else %}Used{% endif %}</span>{% else %}<span class="pill">Not deducted</span>{% endif %}{% elif mine and a.free < 0 %}<span class="pill bad">Short by {{ '%g'|format(-a.free) }}</span>{% endif %}
 {% if mine and not a.consumed %}<form class="noprint" method="post" action="{{ url_for('unassign', aid=a.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form>{% endif %}</div>
 {% else %}<p class="muted">{{ 'Nothing assigned yet. Pick supplies below.' if mine else 'No materials listed.' }}</p>{% endfor %}
 {% if mine and p.status != 'done' %}<form class="inline noprint" style="margin-top:14px" method="post" action="{{ url_for('assign', id=p.id) }}">{{ csrf }}
@@ -37,7 +39,7 @@
 </div><div>
 {% if mine %}<form class="panel noprint" method="post" action="{{ url_for('project_update', id=p.id) }}">{{ csrf }}<div class="panel-head"><h2>Details</h2></div>
 <div class="form-grid"><label class="field wide"><span>Name</span><input name="name" value="{{ p.name }}" maxlength="100"></label>
-{% if p.status != 'done' %}<label class="field wide"><span>Status</span><select name="status"><option value="planned" {{ 'selected' if p.status == 'planned' }}>Planned</option><option value="active" {{ 'selected' if p.status == 'active' }}>Active</option></select></label>{% endif %}
+{% if p.status not in ('done', 'template') %}<label class="field wide"><span>Status</span><select name="status"><option value="planned" {{ 'selected' if p.status == 'planned' }}>Planned</option><option value="active" {{ 'selected' if p.status == 'active' }}>Active</option></select></label>{% endif %}
 <label class="field wide"><span>Notes</span><textarea name="notes" rows="4" maxlength="5000">{{ p.notes }}</textarea></label></div>
 <div class="form-actions"><button class="btn">Save details</button></div></form>
 {% elif p.notes %}<section class="panel noprint"><div class="panel-head"><h2>Notes</h2></div><div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ p.notes }}</div></section>{% endif %}

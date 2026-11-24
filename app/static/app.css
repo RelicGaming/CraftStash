@@ -177,4 +177,5 @@ input[type=range].hsl-r{-webkit-appearance:none;appearance:none;height:24px;padd
 input[type=range].hsl-r::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:2px solid #333;box-shadow:0 1px 3px rgba(0,0,0,.4)}
 input[type=range].hsl-r::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid #333;box-shadow:0 1px 3px rgba(0,0,0,.4)}
 input[type=range].hsl-r::-moz-range-track{background:transparent}
-.places .inline{flex-wrap:nowrap}.places .inline>input{min-width:0;flex:1 1 0}.places .inline>input[name=place_qty]{flex:0 0 84px}.places .inline>span{flex:none}
+input.bought{width:110px;margin-top:6px}
+.used-amount{display:flex;align-items:center;gap:6px;flex:none}.used-amount input{width:90px}

@@ -14,10 +14,12 @@ The first account to register becomes the admin. Admins manage users from the **
 > Then open sign-up from the **Users** page if you want it.
 
 ## Features
-- **Collections** (one per craft) hold **material types** (own unit and custom text/number/dropdown fields) which hold **items** (colour swatch, optional photo, variant, stock, price, location, low-stock level). An item can be **split across several storage places**: use or add stock at a particular place, or move some between places (CSV export shows the main location and the total).
+- **Collections** (one per craft) hold **material types** (own unit and custom text/number/dropdown fields) which hold **items** (colour swatch, optional photo, variant, stock, price, location, low-stock level).
+- **Search everything**: one search box (home page or the header) across every collection you own or that's shared with you, plus project names and notes.
 - Search a collection for any text or one field (`Width:150`), sort, export or **import CSV** (with a check-only mode), see the **activity** history and undo stock changes.
 - **Shopping list** across every collection you can use: out of stock, low, or short for a project. Assigning more than you have is allowed and the gap lands on the list.
-- **Projects**: reserve supplies, numbered steps, attached guides, estimated cost, print layout, duplicate, complete (deducts stock) and reopen (puts it back).
+- **Projects**: reserve supplies, **templates** (save a project as a reusable pattern, start new projects from it; templates hold no stock), numbered steps, attached guides, estimated cost, print layout, duplicate, complete (deducts stock) and reopen (puts it back).
+- **Projects**: reserve supplies, numbered steps, attached guides, estimated cost, print layout, duplicate, complete (enter how much of each material you actually used and only that is deducted, or keep stock untouched) and reopen (puts it back).
 - **Sharing**: collections view-only or can-edit; projects read-only, and a viewer can save their own copy. People can leave what's shared with them.
 - Per-user **themes** (presets or custom colours and corner style), changeable password, admin currency symbol, per-user storage limit, disable users.
 - Daily database snapshots and a one-click full backup (admin).

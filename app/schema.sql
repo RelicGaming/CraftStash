@@ -37,5 +37,6 @@ CREATE VIEW IF NOT EXISTS access AS
   UNION ALL SELECT pool_id, user_id, can_edit, 0 FROM pool_shares;
 CREATE VIEW IF NOT EXISTS stock AS
   SELECT i.*, t.name AS tname, t.unit, t.pool_id, p.name AS pname, p.user_id,
-         i.qty - COALESCE((SELECT SUM(a.qty) FROM assignments a WHERE a.item_id = i.id AND a.consumed = 0), 0) AS free
+         i.qty - COALESCE((SELECT SUM(a.qty) FROM assignments a WHERE a.item_id = i.id AND a.consumed = 0
+                     AND a.project_id NOT IN (SELECT id FROM projects WHERE status = 'template')), 0) AS free
   FROM items i JOIN types t ON t.id = i.type_id JOIN pools p ON p.id = t.pool_id;

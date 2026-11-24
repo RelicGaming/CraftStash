@@ -31,4 +31,4 @@ def test_complete_without_a_choice_deducts_like_before(env, amy):
 def test_project_page_offers_both_choices(env, amy):
     seed(amy); amy.post("/projects/1/assign", {"item_id": "1", "qty": "3"})
     html = amy.html("/projects/1")
-    assert 'name="stock" value="keep"' in html and 'name="stock" value="use"' in html
+    assert 'name="stock" value="keep"' in html and 'href="/projects/1/finish"' in html
