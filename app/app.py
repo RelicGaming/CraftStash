@@ -480,7 +480,8 @@ def match(term, fields):
         for i in ids: args += [f'$."{i}"', like(m[2].strip())]
         return "(" + " OR ".join([f"json_extract(stock.extra, ?) {LIKE}"] * len(ids)) + ")", args, key
     return (f"""(stock.name {LIKE} OR stock.colour {LIKE} OR stock.subtype {LIKE} OR stock.notes {LIKE} OR stock.location {LIKE}
-                OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE}))""", [like(term)] * 6, "")
+                OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE})
+                OR EXISTS(SELECT 1 FROM item_places ip WHERE ip.item_id=stock.id AND ip.place {LIKE}))""", [like(term)] * 7, "")
 
 @app.get("/collections/<int:pid>")
 def pool(pid):

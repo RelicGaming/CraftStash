@@ -179,3 +179,4 @@ input[type=range].hsl-r::-moz-range-thumb{width:22px;height:22px;border-radius:5
 input[type=range].hsl-r::-moz-range-track{background:transparent}
 input.bought{width:110px;margin-top:6px}
 .used-amount{display:flex;align-items:center;gap:6px;flex:none}.used-amount input{width:90px}
+.places .inline{flex-wrap:nowrap}.places .inline>input{min-width:0;flex:1 1 0}.places .inline>input[name=place_qty]{flex:0 0 84px}.places .inline>span{flex:none}
