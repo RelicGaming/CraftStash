@@ -19,4 +19,6 @@ VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request as u;u.urlopen('http://127.0.0.1:8000/healthz')"
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["gunicorn","-b","0.0.0.0:8000","--workers","1","--threads","4","--timeout","120","app:app"]
+# Nothing uses gunicorn's control socket. With it on, gunicorn tries to create it under $HOME, which is still
+# /root after setpriv drops privileges, and logs "Permission denied" at every start.
+CMD ["gunicorn","-b","0.0.0.0:8000","--workers","1","--threads","4","--timeout","120","--no-control-socket","app:app"]
