@@ -22,6 +22,7 @@ The first account to register becomes the admin. Admins manage users from the **
 - **Sharing**: collections view-only or can-edit; projects read-only, and a viewer can save their own copy. People can leave what's shared with them.
 - Per-user **themes** (presets or custom colours and corner style), changeable password, admin currency symbol, per-user storage limit, disable users.
 - Daily database snapshots and a one-click full backup (admin).
+- **JSON API** with per-user tokens, for Home Assistant and scripts: shopping list, stock, collections and projects, plus restocking and using stock. See [API and Home Assistant](#api-and-home-assistant).
 
 ## Behind Nginx Proxy Manager
 Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status from NPM. Only do this when NPM is the **only** way to reach the app: with `TRUST_PROXY=1` anyone who can reach port 8080 directly can fake their address (and dodge the login limiter).
@@ -50,6 +51,85 @@ Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status
 | `BACKUP_KEEP` | 7 | Daily database snapshots to keep, 0 = off |
 | `SECRET_KEY` | auto | Session signing key; generated into the volume if empty |
 | `IMAGE` | craft-stash:latest | Set to `ghcr.io/<you>/craftstash:latest` to pull the CI image. Every build is also tagged `:sha-<commit>`, so you can pin or roll back to one |
+
+## API and Home Assistant
+Make a token under **Account → API tokens**. A token acts as you, so it sees exactly what you see. It is **read only** unless you choose **Read and write**, and only a hash of it is stored, so copy it when it's shown. Revoke a token there to cut off whatever uses it. A disabled account's tokens stop working too.
+
+Send the token with every request as `Authorization: Bearer cs_…`. Responses are JSON. Request bodies can be JSON or form fields.
+
+| Request | What it does |
+|---|---|
+| `GET /api/v1` | Who the token belongs to, whether it can write, and the endpoint list |
+| `GET /api/v1/summary` | Counts for sensors: `shopping_list`, `out_of_stock`, `low_stock`, `short`, `items`, `stash_value`, `projects_active` and more |
+| `GET /api/v1/shopping` | The shopping list. Each item has `status` (`out`, `low` or `short`) and a `suggested` amount to buy |
+| `POST /api/v1/shopping/restock` | Add what you bought: `{"items": [{"id": 3, "amount": 2}]}`, or `{"id": 3}` for the suggested amount, or `{"all": true}` for everything on the list |
+| `GET /api/v1/items?q=&status=` | Search every item, like the app does (`Label:value` works). `status` is one of `ok`, `low`, `out` or `short` |
+| `GET /api/v1/items/<id>` | One item, including its places |
+| `POST /api/v1/items/<id>/adjust` | `{"action": "use", "amount": 2}` or `"add"`. Add `"place": "Shelf B"` for one of its other places |
+| `GET /api/v1/collections`, `GET /api/v1/collections/<id>` | Collections, and one collection with its types, fields and items |
+| `GET /api/v1/projects?status=`, `GET /api/v1/projects/<id>` | Projects, and one project with its materials and steps |
+
+Stock changes made through the API go into the collection's activity history under your name, so they can be undone there. After 8 wrong tokens from one address in 10 minutes, that address gets `429` responses until the 10 minutes are up.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://stash.example.com/api/v1/shopping
+```
+
+### Home Assistant
+Put the token in `secrets.yaml` as `craft_stash_auth: "Bearer cs_…"` (with `Bearer `). Then in `configuration.yaml`:
+
+```yaml
+rest:
+  - resource: https://stash.example.com/api/v1/summary
+    headers: { Authorization: !secret craft_stash_auth }
+    scan_interval: 300
+    sensor:
+      - name: Craft shopping list
+        value_template: "{{ value_json.shopping_list }}"
+        unit_of_measurement: items
+      - name: Craft stash value
+        value_template: "{{ value_json.stash_value }}"
+  - resource: https://stash.example.com/api/v1/shopping
+    headers: { Authorization: !secret craft_stash_auth }
+    scan_interval: 300
+    sensor:
+      - name: Craft shopping items
+        value_template: "{{ value_json.count }}"
+        json_attributes: [items]
+
+rest_command:          # needs a "Read and write" token
+  craft_restock_all:
+    url: https://stash.example.com/api/v1/shopping/restock
+    method: post
+    headers: { Authorization: !secret craft_stash_auth }
+    content_type: application/json
+    payload: '{"all": true}'
+  craft_use:
+    url: "https://stash.example.com/api/v1/items/{{ item_id }}/adjust"
+    method: post
+    headers: { Authorization: !secret craft_stash_auth }
+    content_type: application/json
+    payload: '{"action": "use", "amount": {{ amount }}}'
+```
+
+To list the shopping list on a dashboard, use a Markdown card:
+
+```yaml
+type: markdown
+content: >
+  {% for i in state_attr('sensor.craft_shopping_items', 'items') or [] %}
+  - **{{ i.name }}** ({{ i.collection }}): buy {{ i.suggested }} {{ i.unit }}{{ ', out of stock' if i.status == 'out' }}
+  {% endfor %}
+```
+
+To get a notification when something runs out:
+
+```yaml
+automation:
+  - alias: Craft supplies need buying
+    triggers: [{ trigger: numeric_state, entity_id: sensor.craft_shopping_list, above: 0 }]
+    actions: [{ action: notify.notify, data: { message: "{{ states('sensor.craft_shopping_list') }} craft supplies on the shopping list" } }]
+```
 
 ## Backups and recovery
 - **What is saved:** `/data` holds `craft.db`, `uploads/` (guides and photos) and `backups/` (daily snapshots and safety copies made before upgrades and restores). Back up the whole volume (on Unraid, include the appdata folder).

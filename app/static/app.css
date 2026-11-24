@@ -207,3 +207,6 @@ details.places[open]>summary{margin-bottom:6px}
 .photo-colour[aria-pressed=true]{outline:3px solid var(--accent);outline-offset:2px}
 .photo-pick-body .inline{flex-wrap:wrap;gap:8px}.photo-pick-body .btn{white-space:normal}
 .photo-colours[hidden],.photo-preview[hidden]{display:none}
+/* API tokens on the account page */
+.token-out{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem;min-width:0;flex:1 1 0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;overflow-wrap:anywhere}

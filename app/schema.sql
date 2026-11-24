@@ -42,3 +42,5 @@ CREATE VIEW IF NOT EXISTS stock AS
          i.qty - COALESCE((SELECT SUM(a.qty) FROM assignments a WHERE a.item_id = i.id AND a.consumed = 0
                      AND a.project_id NOT IN (SELECT id FROM projects WHERE status = 'template')), 0) AS free
   FROM items i JOIN types t ON t.id = i.type_id JOIN pools p ON p.id = t.pool_id;
+CREATE TABLE IF NOT EXISTS api_tokens(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users ON DELETE CASCADE, name TEXT NOT NULL, hash TEXT UNIQUE NOT NULL, can_write INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL DEFAULT (datetime('now')), last_used TEXT);
+CREATE INDEX IF NOT EXISTS ix_api_tokens_user ON api_tokens(user_id);

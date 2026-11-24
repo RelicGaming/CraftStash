@@ -228,6 +228,21 @@ def _(t):
     u.post(f"{url}/{fid}/delete"); assert "GSM" not in u.get(url).text, "field not deleted"
     u.post(f"/types/{tid}/update", {"name": "Fabrics", "unit": "yd"}); assert "Fabrics" in u.get(url).text, "type rename failed"
 
+@check("API", "Tokens: read-only and write access, shopping list, restock, use stock")
+def _(t):
+    u = t.user(); pid, tid, iid = setup_stash(u, qty="0")
+    tok = lambda access: re.search(r'value="(cs_[\w-]+)"', u.post("/account/tokens", {"name": "Selftest " + access, "access": access}).text)[1]
+    ro, rw = tok("read"), tok("write")
+    h = lambda k: {"Authorization": "Bearer " + k}
+    assert u.get("/api/v1/summary", headers={"Authorization": "Bearer cs_nope"}).status == 401, "bad token accepted"
+    shop = json.loads(u.get("/api/v1/shopping", headers=h(ro)).text)
+    assert any(i["id"] == iid and i["status"] == "out" for i in shop["items"]), "out-of-stock item missing from API shopping list"
+    assert u.post("/api/v1/shopping/restock", {"id": iid, "amount": "3"}, headers=h(ro), retry=False).status == 403, "read-only token could write"
+    r = json.loads(u.post("/api/v1/shopping/restock", {"id": iid, "amount": "3"}, headers=h(rw), retry=False).text)
+    assert r["restocked"] and r["restocked"][0]["qty"] == 3, "API restock failed"
+    r = json.loads(u.post(f"/api/v1/items/{iid}/adjust", {"action": "use", "amount": "1"}, headers=h(rw), retry=False).text)
+    assert r["qty"] == 2, "API adjust failed"
+
 @check("Collections", "Quick setup: new collection, preset type, typed starter fields, add another")
 def _(t):
     u = t.user(); r = u.post("/collections", {"name": "Knit" + t.tag}, follow=False)
