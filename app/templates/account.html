@@ -6,6 +6,12 @@
 <label class="field wide"><span>New password</span><input name="new" type="password" minlength="8" required autocomplete="new-password"></label>
 <label class="field wide"><span>Repeat new password</span><input name="confirm" type="password" minlength="8" required autocomplete="new-password"></label></div>
 <div class="form-actions"><button class="btn">Update password</button></div></form>
+{% if sso.enabled or identities %}<section class="panel" style="max-width:720px" id="sso"><div class="panel-head"><div><h2>Single sign-on</h2>
+<p class="muted small" style="margin:2px 0 0">Log in with {{ sso.name }} instead of a password.</p></div>
+{% if sso.enabled %}<form method="post" action="{{ url_for('sso_link') }}">{{ csrf }}<button class="btn secondary">Link {{ sso.name }}</button></form>{% endif %}</div>
+{% if identities %}<ul class="plain-list">{% for i in identities %}<li class="inline" style="justify-content:space-between"><span>{{ i.label or 'Linked account' }} <span class="muted small">since {{ when(i.created) }}</span></span>
+<form method="post" action="{{ url_for('sso_unlink', iid=i.id) }}">{{ csrf }}<button class="btn ghost danger sm">Unlink</button></form></li>{% endfor %}</ul>
+{% else %}<p class="muted small" style="margin:0">Not linked yet.</p>{% endif %}</section>{% endif %}
 <section class="panel" style="max-width:720px" id="api"><div class="panel-head"><div><h2>API tokens</h2>
 <p class="muted small" style="margin:2px 0 0">Let Home Assistant or a script read your shopping list, stock and projects, and record stock you use or buy. A token sees exactly what you see. Revoke it here if a device is lost. Changing your password doesn't revoke tokens.</p></div></div>
 {% if new_token %}<div class="notice" role="status"><svg class="i"><use href="#i-info"/></svg><div class="grow" style="min-width:0"><strong>{{ new_name }} is ready.</strong> Copy the token now. It won't be shown again.

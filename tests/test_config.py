@@ -6,8 +6,9 @@ ROOT = Path(__file__).resolve().parent.parent
 ENV_EXAMPLE = {m[1] for m in re.finditer(r"^([A-Z][A-Z0-9_]*)=", (ROOT / ".env.example").read_text(), re.M)}
 COMPOSE = (ROOT / "docker-compose.yml").read_text()
 APP_SRC = "\n".join(p.read_text() for p in (ROOT / "app").glob("*.py"))
-READ_BY_APP = set(re.findall(r"""(?:os\.environ\.get|os\.environ\[|secret|_env|getenv)\(?["']([A-Z][A-Z0-9_]+)["']""", APP_SRC))
-INTERNAL = {"CRAFT_IN_CONTAINER", "SELFTEST_FAST", "TMPDIR", "DATA_DIR", "TEST_DATABASE_URL", "DATABASE_URL_FILE"}
+READ_BY_APP = set(re.findall(r"""(?:os\.environ\.get|os\.environ\[|secret|_env|_flag|getenv)\(?["']([A-Z][A-Z0-9_]+)["']""", APP_SRC))
+INTERNAL = {"CRAFT_IN_CONTAINER", "SELFTEST_FAST", "TMPDIR", "DATA_DIR", "TEST_DATABASE_URL", "DATABASE_URL_FILE",
+            "OIDC_ALLOW_HTTP"}      # OIDC_ALLOW_HTTP: test providers only, documented in oidc.py
 COMPOSE_ONLY = {"PORT", "IMAGE", "COMPOSE_PROFILES", "PROXY_NETWORK", "NPM_HTTP_PORT", "NPM_HTTPS_PORT", "NPM_ADMIN_PORT",
                 "NPM_DATA_DIR", "NPM_LETSENCRYPT_DIR", "POSTGRES_DATA_DIR", "MARIADB_DATA_DIR", "NPM_IMAGE", "POSTGRES_IMAGE",
                 "MARIADB_IMAGE", "PUID", "PGID", "CHOWN"}        # used by compose or the entrypoint, not app/*.py

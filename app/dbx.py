@@ -26,10 +26,10 @@ from urllib.parse import quote, unquote, urlsplit
 ENGINES = ("sqlite", "postgres", "mysql")
 # Tables whose rows have an integer id, so an INSERT can hand it back as cursor.lastrowid.
 ID_TABLES = {"users", "pools", "types", "items", "projects", "assignments", "files", "steps", "activity", "step_photos",
-             "item_places", "api_tokens"}
+             "item_places", "api_tokens", "user_identities"}
 # Every table, parents before children (the order a dump is loaded in).
 TABLES = ["users", "settings", "pools", "types", "items", "item_places", "projects", "assignments", "files", "steps",
-          "step_photos", "pool_shares", "project_shares", "activity", "api_tokens"]
+          "step_photos", "pool_shares", "project_shares", "activity", "api_tokens", "user_identities"]
 
 def secret(name, default=""):
     """An environment value, or the contents of the file named by NAME_FILE (Docker secrets)."""

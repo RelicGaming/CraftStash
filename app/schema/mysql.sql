@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS item_places(id BIGINT AUTO_INCREMENT PRIMARY KEY, ite
   UNIQUE KEY uq_item_place (item_id, place), FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS api_tokens(id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, name TEXT NOT NULL, hash VARCHAR(128) NOT NULL UNIQUE, can_write INTEGER NOT NULL DEFAULT 0, created VARCHAR(19) NOT NULL DEFAULT (DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:%i:%s')), last_used VARCHAR(19),
   INDEX ix_api_tokens_user (user_id), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS user_identities(id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, issuer VARCHAR(255) NOT NULL, subject VARCHAR(255) NOT NULL, label TEXT NOT NULL DEFAULT (''), created VARCHAR(19) NOT NULL DEFAULT (DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:%i:%s')),
+  UNIQUE KEY uq_identity (issuer, subject), INDEX ix_user_identities_user (user_id), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE OR REPLACE VIEW access AS
   SELECT id AS pool_id, user_id, 1 AS can_edit, 1 AS is_owner FROM pools
