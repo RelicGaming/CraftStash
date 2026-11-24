@@ -22,4 +22,11 @@
 <section class="panel"><div class="panel-head"><div><h3>Backups</h3><p class="muted small" style="margin:2px 0 0">The full backup is a zip with the database and every uploaded file. A database snapshot is also saved each day in the data volume ({{ snaps }} kept{% if last_snap %}, latest {{ last_snap }}{% endif %}).</p></div>
 <form method="post" action="{{ url_for('admin_backup') }}">{{ csrf }}<button class="btn">Download full backup</button></form></div>
 <p class="muted small" style="margin:0">To restore, stop the container, then run <code>python manage.py restore /data/backup.zip</code> inside it. The README has the exact commands.</p></section>
+<section class="panel storage"><div class="panel-head"><div><h3>Storage</h3><p class="muted small" style="margin:2px 0 0">Where each kind of file is kept. Any of these can be mapped to its own volume or host folder with the setting shown; the README explains how.</p></div></div>
+{% if storage|selectattr('unmapped')|list %}<p class="notice small" style="background:var(--warn-soft);border-color:var(--warn)">Some folders are inside the container, not on a mapped volume. Files there fill Docker's own disk (the vdisk on Unraid) and are lost when the container is recreated.</p>{% endif %}
+<div class="storage-list">{% for r in storage %}<div class="storage-row">
+<strong>{{ r.label }}</strong>{% if r.unmapped %}<span class="pill warn">{{ r.where }}</span>{% elif r.where == "Missing" %}<span class="pill bad">Missing</span>{% else %}<span class="pill">{{ r.where }}</span>{% endif %}
+<code class="path small">{{ r.path }}</code>
+<span class="muted small"><code>{{ r.var }}</code></span><span class="muted small">{{ r.free|gb }} free{% if r.total %} of {{ r.total|gb }}{% endif %}</span>
+</div>{% endfor %}</div></section>
 {% endblock %}

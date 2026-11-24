@@ -236,3 +236,8 @@ summary.who.current .avatar{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--
 /* project materials: the name keeps room on phones and the amount and buttons wrap below it */
 .mat-row{flex-wrap:wrap}.mat-row .grow{flex:1 1 150px}.mat-row .pill,.mat-row>strong{white-space:nowrap}
 #settings{scroll-margin-top:80px}
+
+/* Admin storage panel */
+.storage-row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.storage-row .path{grid-column:1/-1;overflow-wrap:anywhere;justify-self:start}.storage-row .pill{justify-self:end}
+.storage-row>span:last-child{text-align:right}

@@ -50,7 +50,47 @@ Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status
 | `USER_QUOTA_MB` | 500 | Guide/pattern storage per user, 0 = unlimited |
 | `BACKUP_KEEP` | 7 | Daily database snapshots to keep, 0 = off |
 | `SECRET_KEY` | auto | Session signing key; generated into the volume if empty |
+| `UPLOADS_DIR` / `PHOTOS_DIR` / `BACKUP_DIR` / `TMP_DIR` | under `/data` | Put a folder on its own volume or host folder; see [Storage](#storage) |
+| `CHOWN` | auto | `auto` fixes ownership only where it is wrong, `always` every start, `never` leaves it alone (NAS shares) |
 | `IMAGE` | craft-stash:latest | Set to `ghcr.io/<you>/craftstash:latest` to pull the CI image. Every build is also tagged `:sha-<commit>`, so you can pin or roll back to one |
+
+## Storage
+Everything is kept under `/data` by default. The big folders can each be mapped somewhere else, for example photos on
+an Unraid array share while the database stays on the cache drive, or files on a NAS:
+
+| Folder | Setting | Default | Holds |
+|---|---|---|---|
+| Database and settings | `DATA_DIR` | `/data` | `craft.db`, the secret key. Keep it on a local disk, not a network share |
+| Uploaded files | `UPLOADS_DIR` | `/data/uploads` | Pattern and guide files |
+| Photos | `PHOTOS_DIR` | `$UPLOADS_DIR/photos` | Item and step photos (usually the biggest) |
+| Backups | `BACKUP_DIR` | `/data/backups` | Daily snapshots and safety copies |
+| Temporary files | `TMP_DIR` | `/data/tmp` | Uploads while they arrive, backup zips, restore staging |
+
+Map the folder and set its setting, e.g. in `docker-compose.yml`:
+
+```yaml
+    environment:
+      PHOTOS_DIR: /photos
+      UPLOADS_DIR: /files
+    volumes:
+      - /mnt/user/appdata/craft-stash:/data
+      - /mnt/user/craft-stash/photos:/photos
+      - /mnt/user/craft-stash/files:/files
+```
+
+- **Nothing is written inside the container.** Temp files go to `TMP_DIR`, not the container's `/tmp`, so large
+  uploads can't fill Docker's own disk (the vdisk on Unraid). The container log is capped at 30 MB. The startup log
+  (`docker logs craft-stash`) lists every folder with its free space and warns if one isn't mapped; the Admin page
+  shows the same.
+- **A folder that is set must be mapped.** If `PHOTOS_DIR=/photos` is set but nothing is mapped there (or an array share
+  is offline), the app refuses to start instead of quietly writing into the container.
+- **Ownership:** at startup the container makes each folder owned by `PUID`/`PGID`. `CHOWN=never` leaves a NAS share's
+  permissions alone; the startup log says if a folder is then not writable.
+- **Read-only container (optional):** uncomment `read_only: true` and `tmpfs: [/run]` in `docker-compose.yml`. Anything
+  not on a mapped folder then fails loudly.
+- **Moving existing photos:** stop the container, move `/data/uploads/photos/*` to the new folder, set `PHOTOS_DIR`, and
+  start it again. Photos are stored by file name only, so nothing in the database changes.
+- **Backups** contain every file wherever it is mapped, and restore puts them back wherever the folders are mapped now.
 
 ## API and Home Assistant
 Make a token under **Account → API tokens**. A token acts as you, so it sees exactly what you see. It is **read only** unless you choose **Read and write**, and only a hash of it is stored, so copy it when it's shown. Revoke a token there to cut off whatever uses it. A disabled account's tokens stop working too.
@@ -132,7 +172,7 @@ automation:
 ```
 
 ## Backups and recovery
-- **What is saved:** `/data` holds `craft.db`, `uploads/` (guides and photos) and `backups/` (daily snapshots and safety copies made before upgrades and restores). Back up the whole volume (on Unraid, include the appdata folder).
+- **What is saved:** `/data` holds `craft.db`, `uploads/` (guides and photos) and `backups/` (daily snapshots and safety copies made before upgrades and restores), unless those folders are [mapped elsewhere](#storage). Back up `/data` and every mapped folder (on Unraid, include the appdata folder).
 - **Full backup:** Users page, **Download full backup** (zip of database and uploads).
 - **Restore** (the app must be stopped):
 

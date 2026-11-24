@@ -2,9 +2,9 @@
 import argparse, getpass, os, re, sqlite3, time
 from pathlib import Path
 from werkzeug.security import generate_password_hash
-import backup, migrations
+import backup, migrations, paths
 
-DATA = Path(os.environ.get("DATA_DIR", "/data"))
+P = paths.Paths(); DATA = P.data
 
 def conn():
     c = sqlite3.connect(DATA / "craft.db"); c.row_factory = sqlite3.Row; return c
@@ -18,7 +18,7 @@ def reset_password(a):
     print(f"Password for {a.username} updated (they are signed out everywhere).")
 
 def create_user(a):
-    migrations.run(DATA / "craft.db", (Path(__file__).parent / "schema.sql").read_text())   # works before the first start too
+    migrations.run(P.db, (Path(__file__).parent / "schema.sql").read_text(), P.backups)   # works before the first start too
     if not re.fullmatch(r"[\w.-]{3,40}", a.username): raise SystemExit("Username: 3-40 letters, numbers, dots, dashes or underscores.")
     pw = a.password or getpass.getpass("Password: ")
     if len(pw) < 8: raise SystemExit("Use 8 or more characters.")
@@ -36,14 +36,15 @@ def list_users(a):
         print(f"{u['username']:<24}{'admin' if u['is_admin'] else '':<8}{'' if u['active'] else 'disabled'}")
 
 def restore(a):
-    backup.restore(DATA, a.file, force=a.force); print("Restored. Start the app again.")
+    backup.restore(P, a.file, force=a.force); print("Restored. Start the app again.")
 
 def cleanup(a):
-    c = conn(); used = {r[0] for r in c.execute("SELECT stored FROM files")} | {r[0] for r in c.execute("SELECT photo FROM items WHERE photo<>''")}
+    c = conn(); used = ({r[0] for r in c.execute("SELECT stored FROM files")} | {r[0] for r in c.execute("SELECT photo FROM items WHERE photo<>''")}
+                        | {r[0] for r in c.execute("SELECT stored FROM step_photos")})      # step photos were missing here before
     n = 0
-    for p in (DATA / "uploads").rglob("*"):
-        if p.is_file() and p.name not in used and time.time() - p.stat().st_mtime > 3600:
-            print(("would delete " if a.dry_run else "deleting ") + str(p.relative_to(DATA))); n += 1
+    for p, _ in backup._upload_files(P):
+        if p.name not in used and time.time() - p.stat().st_mtime > 3600:
+            print(("would delete " if a.dry_run else "deleting ") + str(p)); n += 1
             if not a.dry_run: p.unlink()
     print(f"{n} orphaned file(s).")
 

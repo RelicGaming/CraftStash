@@ -1,4 +1,4 @@
-import importlib, io, re, sys, types
+import importlib, io, os, re, sys, types
 from pathlib import Path
 import pytest
 
@@ -18,6 +18,10 @@ class C:
 def make_env(tmp_path, monkeypatch):
     def make(**env):
         monkeypatch.setenv("DATA_DIR", str(tmp_path)); monkeypatch.setenv("BACKUP_KEEP", "0"); monkeypatch.setenv("TZ", "Australia/Brisbane")
+        # The app points tempfile and TMPDIR at its TMP_DIR; put them back after each test.
+        import tempfile; monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
+        if "TMPDIR" in os.environ: monkeypatch.setenv("TMPDIR", os.environ["TMPDIR"])
+        else: monkeypatch.delenv("TMPDIR", raising=False)
         for k, v in env.items(): monkeypatch.setenv(k, str(v))
         for m in ("app", "importer", "backup", "migrations", "manage"): sys.modules.pop(m, None)   # fresh app and database per test
         mod = importlib.import_module("app")

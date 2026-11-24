@@ -558,9 +558,17 @@ def console_report(d, color):
 def free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
-def start_server(port, data_dir, kind):
+SANDBOX_DROP = ("SECRET_KEY", "PUID", "PGID", "UPLOADS_DIR", "PHOTOS_DIR", "BACKUP_DIR", "TMP_DIR", "SELFTEST_DIR")
+
+def sandbox_env(data_dir):
+    """The throw-away app's environment. It must never see the real folders, so every storage setting is dropped and
+    they all default to places inside the sandbox."""
     env = {**os.environ, "DATA_DIR": str(data_dir), "BACKUP_KEEP": "0", "USER_QUOTA_MB": "1", "TRUST_PROXY": "1", "ALLOW_SIGNUP": "1"}
-    for k in ("SECRET_KEY", "PUID", "PGID"): env.pop(k, None)
+    for k in SANDBOX_DROP: env.pop(k, None)
+    return env
+
+def start_server(port, data_dir, kind):
+    env = sandbox_env(data_dir)
     try: import gunicorn  # noqa
     except ImportError: kind = "flask" if kind == "auto" else kind
     kind = "gunicorn" if kind == "auto" else kind

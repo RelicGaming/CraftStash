@@ -17,11 +17,29 @@ services:
       USER_QUOTA_MB: "${USER_QUOTA_MB:-500}"  # guide/pattern storage per user, 0 = unlimited
       BACKUP_KEEP: "${BACKUP_KEEP:-7}"        # daily database snapshots to keep, 0 = off
       SECRET_KEY: "${SECRET_KEY:-}"           # optional; auto-generated into the volume if empty
+      # Storage: everything lives under /data unless a folder is mapped on its own (see volumes below).
+      # Each must point at a mapped folder; the app refuses to start if one is set but missing.
+      UPLOADS_DIR: "${UPLOADS_DIR:-}"         # pattern and guide files      e.g. /files
+      PHOTOS_DIR: "${PHOTOS_DIR:-}"           # item and step photos         e.g. /photos
+      BACKUP_DIR: "${BACKUP_DIR:-}"           # daily snapshots              e.g. /backups
+      TMP_DIR: "${TMP_DIR:-}"                 # uploads while they arrive, backup zips (default /data/tmp)
+      CHOWN: "${CHOWN:-auto}"                 # auto | always | never (never for NAS shares with their own permissions)
     volumes:
-      - craft-data:/data                      # database, uploads, snapshots
+      - craft-data:/data                      # database, secret key, and (unless mapped below) uploads, photos, snapshots
       # Unraid-style bind mount instead:
       # - /mnt/user/appdata/craft-stash:/data
+      # Split the big folders onto other disks or shares (and set the matching *_DIR above):
+      # - /mnt/user/craft-stash/photos:/photos
+      # - /mnt/user/craft-stash/files:/files
+      # - /mnt/user/craft-stash/backups:/backups
     mem_limit: 384m
+    logging:                                  # cap the container log, which otherwise grows on Docker's own disk
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    # Optional: make the image itself read-only, so nothing can ever be written inside the container. Anything not
+    # on a mapped folder then fails loudly instead of quietly filling Docker's disk.
+    # read_only: true
+    # tmpfs: [/run]
     # Shared network with Nginx Proxy Manager (then NPM forwards to craft-stash:8000 and no host port is needed):
     # networks: [default, proxy]
 
