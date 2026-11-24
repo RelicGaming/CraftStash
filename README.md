@@ -2,6 +2,7 @@
 Self-hosted inventory for craft supplies: what you have, where it is, what each project needs and what to buy. One
 container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any reverse proxy.
 
+- [Screenshots](#screenshots)
 - [Choose your setup](#choose-your-setup)
 - [Install](#install): [docker run](#docker-run) · [Docker Compose](#docker-compose) · [Dockhand](#dockhand) · [Unraid](#unraid) · [Portainer](#portainer)
 - [First start](#first-start)
@@ -20,6 +21,36 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 - Per-user **themes** (presets or custom colours and corner style), changeable password, admin currency symbol, per-user storage limit, disable users.
 - Daily database snapshots and a one-click full backup (admin).
 - **JSON API** with per-user tokens, for Home Assistant and scripts. See [API and Home Assistant](#api-and-home-assistant).
+
+## Screenshots
+![A Knitting collection: yarn with photos, colour swatches, custom fields like weight and fibre, storage places, stock and price, with "Out of stock" and "Short by 2" flags](docs/screenshots/collection.png)
+*A collection: every item with its photo, swatch, custom fields, where it's kept, how much is free and what it cost.*
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/collections.png" alt="The Collections page with Beading, Embroidery, Knitting and Sewing cards, each with a strip of its colours and an item count"><br><em>Collections, one per craft.</em></td>
+<td width="50%"><img src="docs/screenshots/presets.png" alt="An empty Embroidery collection offering one-tap material types (Fabric, Embroidery floss, Yarn, Thread, Beads and more) or a custom type with fields"><br><em>Setting up a new collection with one-tap material types.</em></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/item-form.png" alt="Editing Merino DK: the photo first with a Suggest colour button, then name, colour, swatch, weight dropdown, fibre, length, stock, low-stock level, price and location"><br><em>Photo-first item form; the swatch colour can come from the photo.</em></td>
+<td><img src="docs/screenshots/shopping.png" alt="The shopping list grouped by collection: Chunky wool out of stock, Sock yarn short by 2 for a project, Double gauze below its low-stock level, each with a suggested amount to buy"><br><em>Shopping list: out, low, or short for a project, with amounts to buy.</em></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/project.png" alt="The Cabled beanie project: materials needed with their cost, numbered steps, project details and a place for patterns"><br><em>A project with reserved materials, steps and patterns.</em></td>
+<td><img src="docs/screenshots/projects.png" alt="The Projects page listing Cabled beanie (active), Ocean socks and Weekend tote (planned) and the Basic socks template"><br><em>Projects and templates.</em></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/search.png" alt="Searching everything for cotton finds Cotton DK in Knitting, and Double gauze and Quilting cotton in Sewing"><br><em>One search across every collection.</em></td>
+<td><img src="docs/screenshots/admin-storage.png" alt="Admin Storage panel: the database in /data, uploaded files in /files, photos in /photos and backups in /backups, each on its own volume with its free space"><br><em>Admin: where each kind of file lives (here split across volumes).</em></td>
+</tr>
+</table>
+
+<p align="center">
+<img src="docs/screenshots/phone-collection.png" width="280" alt="The Knitting collection on a phone in dark mode, with yarn photos, stock and the bottom tab bar">
+&nbsp;&nbsp;
+<img src="docs/screenshots/phone-shopping.png" width="280" alt="The shopping list on a phone in dark mode, with amounts to buy and the bottom tab bar"><br>
+<em>On a phone, with the dark theme.</em>
+</p>
 
 ## Choose your setup
 | You want... | Use | Settings to look at |

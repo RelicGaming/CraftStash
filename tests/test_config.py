@@ -56,4 +56,6 @@ def test_readme_links_resolve():
     def slug(h): return re.sub(r"[^\w\- ]", "", h.strip().lower()).replace(" ", "-")
     anchors = {slug(m[1]) for m in re.finditer(r"^#{1,6} (.+)$", text, re.M)} | set(re.findall(r'id="([^"]+)"', text))
     for target in re.findall(r"\]\(#([^)]+)\)", text): assert target in anchors, f"README links to #{target}, which isn't there"
-    for target in re.findall(r"\]\((?!https?:|#)([^)#]+)", text): assert (ROOT / target).exists(), f"README links to {target}, which doesn't exist"
+    for target in re.findall(r"\]\((?!https?:|#)([^)#]+)", text) + re.findall(r'src="(?!https?:)([^"]+)"', text):
+        assert (ROOT / target).exists(), f"README links to {target}, which doesn't exist"
+    for alt in re.findall(r'<img [^>]*>', text): assert 'alt="' in alt and 'alt=""' not in alt, f"image without alt text: {alt}"
