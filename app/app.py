@@ -748,7 +748,7 @@ def new_project():
 @app.get("/projects/<int:id>")
 def project(id):
     pr = project_of(id); mine = pr["user_id"] == uid()
-    assigned = q("""SELECT a.id, a.qty, a.consumed, s.name, s.colour, s.hex, s.subtype, s.tname, s.unit, s.pname, s.price, s.free
+    assigned = q("""SELECT a.id, a.qty, a.consumed, a.used, s.name, s.colour, s.hex, s.subtype, s.tname, s.unit, s.pname, s.price, s.free
                     FROM assignments a JOIN stock s ON s.id=a.item_id
                     WHERE a.project_id=? ORDER BY s.pname, s.tname, s.name""", id)
     avail = q("""SELECT s.* FROM stock s JOIN access a ON a.pool_id=s.pool_id
@@ -798,13 +798,15 @@ def complete(id):
         # reservations on collections the owner can no longer edit are stale: drop them instead of using that stock
         d.execute(f"""DELETE FROM assignments WHERE project_id=? AND consumed=0 AND item_id IN
                       (SELECT s.id FROM stock s WHERE NOT {CAN_EDIT})""", (id, pr["user_id"]))
+        keep = request.form.get("stock") == "keep"   # "Complete, keep stock": close the project, leave quantities alone
         for a in q("""SELECT a.id, a.item_id, a.qty, s.qty AS have, s.name, s.unit, s.pool_id FROM assignments a
                       JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=0""", id):
-            used = min(a["qty"], a["have"])
-            d.execute("UPDATE items SET qty=qty-? WHERE id=?", (used, a["item_id"]))
+            used = 0 if keep else min(a["qty"], a["have"])     # used=0 also means reopening puts nothing back
+            if used: d.execute("UPDATE items SET qty=qty-? WHERE id=?", (used, a["item_id"]))
             d.execute("UPDATE assignments SET consumed=1, used=? WHERE id=?", (used, a["id"]))
             if used: log(a["pool_id"], "project", f"{pr['name']}: used {used:g} {a['unit']} of {a['name']}", a["item_id"], -used, commit=False)
         d.execute("UPDATE projects SET status='done' WHERE id=?", (id,)); d.commit()
+        if keep: flash("Project marked done. Your stock was left as it was.")
     return redirect(url_for("project", id=id))
 
 @app.post("/projects/<int:id>/reopen")
