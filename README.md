@@ -51,6 +51,7 @@ Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status
 | `BACKUP_KEEP` | 7 | Daily database snapshots to keep, 0 = off |
 | `SECRET_KEY` | auto | Session signing key; generated into the volume if empty |
 | `UPLOADS_DIR` / `PHOTOS_DIR` / `BACKUP_DIR` / `TMP_DIR` | under `/data` | Put a folder on its own volume or host folder; see [Storage](#storage) |
+| `DATABASE_URL` | empty (SQLite) | An external PostgreSQL database; see [Database](#database). Also `DB_TYPE`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `DB_CONNECT_TIMEOUT` |
 | `CHOWN` | auto | `auto` fixes ownership only where it is wrong, `always` every start, `never` leaves it alone (NAS shares) |
 | `IMAGE` | craft-stash:latest | Set to `ghcr.io/<you>/craftstash:latest` to pull the CI image. Every build is also tagged `:sha-<commit>`, so you can pin or roll back to one |
 
@@ -91,6 +92,43 @@ Map the folder and set its setting, e.g. in `docker-compose.yml`:
 - **Moving existing photos:** stop the container, move `/data/uploads/photos/*` to the new folder, set `PHOTOS_DIR`, and
   start it again. Photos are stored by file name only, so nothing in the database changes.
 - **Backups** contain every file wherever it is mapped, and restore puts them back wherever the folders are mapped now.
+
+## Database
+Craft Stash uses SQLite in `/data` unless told otherwise. That needs no setup and suits a household. To use a
+PostgreSQL 13+ server you already run, create an empty database and user for it:
+
+```sql
+CREATE USER craftstash WITH PASSWORD 'choose-one';
+CREATE DATABASE craftstash OWNER craftstash;
+```
+
+and point the app at it, either with one setting:
+
+```
+DATABASE_URL=postgresql://craftstash:choose-one@192.168.1.20:5432/craftstash
+```
+
+or with `DB_TYPE=postgres`, `DB_HOST`, `DB_PORT` (5432), `DB_NAME`, `DB_USER` and `DB_PASSWORD`. `DB_PASSWORD_FILE` (and
+`DATABASE_URL_FILE`) read the value from a file instead, for Docker secrets. `DB_SSLMODE` sets TLS (`require`,
+`verify-full`, ...). At startup the app waits up to `DB_CONNECT_TIMEOUT` seconds (60) for the server, creates its tables,
+and logs which database it is using (`[db] postgres (craftstash@192.168.1.20:5432/craftstash)`, never the password).
+The `nocase` collation it creates needs a PostgreSQL built with ICU, which the official images and distribution
+packages are. `/data` is still needed for the secret key, and for photos and files unless they are
+[mapped elsewhere](#storage). Run one copy of the app.
+
+**Moving to another database.** Stop the app, then copy everything across with the old setting still in place:
+
+    docker compose stop craft-stash
+    docker compose run --rm --no-deps craft-stash python manage.py move-db --to postgresql://craftstash:choose-one@192.168.1.20:5432/craftstash
+
+then set `DATABASE_URL` and start it again. The target must be empty (`--replace` empties it first). If the app starts
+on an empty external database while `/data/craft.db` still has accounts, it refuses and prints this command, so a
+forgotten move can't look like lost data. `manage.py export-db file.json` and `manage.py import-db file.json` do the
+same through a file, and work between any two databases.
+
+**Backups** on an external database: the daily snapshots are portable `auto-*.json` exports in `BACKUP_DIR`, and the full
+backup zip holds `craft-dump.json` instead of `craft.db`. `manage.py restore` takes either kind of backup, from either
+kind of database. Your database server's own backups (`pg_dump`) work too.
 
 ## API and Home Assistant
 Make a token under **Account → API tokens**. A token acts as you, so it sees exactly what you see. It is **read only** unless you choose **Read and write**, and only a hash of it is stored, so copy it when it's shown. Revoke a token there to cut off whatever uses it. A disabled account's tokens stop working too.

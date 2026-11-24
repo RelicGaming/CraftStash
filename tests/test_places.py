@@ -4,8 +4,8 @@ from conftest import seed
 
 MERINO = {"name": "Merino", "colour": "Rose", "qty": "5", "location": "Drawer 3"}
 
-def places(env): return dict(sqlite3.connect(env.data / "craft.db").execute("SELECT place, qty FROM item_places WHERE item_id=1 ORDER BY place"))
-def qty(env): return sqlite3.connect(env.data / "craft.db").execute("SELECT qty FROM items WHERE id=1").fetchone()[0]
+def places(env): return dict(env.db().execute("SELECT place, qty FROM item_places WHERE item_id=1 ORDER BY place"))
+def qty(env): return env.db().execute("SELECT qty FROM items WHERE id=1").fetchone()[0]
 def edit(c, names, amounts, **kw): return c.post("/items/1/edit", {**MERINO, **kw, "place_name": names, "place_qty": amounts}, follow_redirects=True)
 
 def test_edit_saves_places_and_shows_the_split(env, amy):
@@ -50,4 +50,4 @@ def test_places_need_edit_rights_and_go_with_the_item(env, amy, bob):
     seed(amy); amy.post("/collections/1/share", {"username": "bob"})
     assert bob.post("/items/1/move", {"amount": "1", "to": "Box"}).status_code == 404
     edit(amy, ["Shelf B"], ["1"]); amy.post("/items/1/delete")
-    assert sqlite3.connect(env.data / "craft.db").execute("SELECT COUNT(*) FROM item_places").fetchone()[0] == 0
+    assert env.db().execute("SELECT COUNT(*) FROM item_places").fetchone()[0] == 0

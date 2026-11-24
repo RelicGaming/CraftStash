@@ -558,7 +558,9 @@ def console_report(d, color):
 def free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
-SANDBOX_DROP = ("SECRET_KEY", "PUID", "PGID", "UPLOADS_DIR", "PHOTOS_DIR", "BACKUP_DIR", "TMP_DIR", "SELFTEST_DIR")
+SANDBOX_DROP = ("SECRET_KEY", "PUID", "PGID", "UPLOADS_DIR", "PHOTOS_DIR", "BACKUP_DIR", "TMP_DIR", "SELFTEST_DIR",
+                "DATABASE_URL", "DATABASE_URL_FILE", "DB_TYPE", "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD",
+                "DB_PASSWORD_FILE", "DB_SSLMODE")   # the sandbox always uses its own SQLite database
 
 def sandbox_env(data_dir):
     """The throw-away app's environment. It must never see the real folders, so every storage setting is dropped and

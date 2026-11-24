@@ -1,5 +1,11 @@
-"""Ordered, idempotent schema upgrades. PRAGMA user_version records how many have run."""
+"""Ordered, idempotent schema upgrades.
+
+SQLite: PRAGMA user_version records how many STEPS have run (schema_version mirrors it).
+PostgreSQL: a new database starts from schema/postgres.sql at the current version, recorded in schema_version;
+SERVER_STEPS holds upgrades written for server engines from then on.
+"""
 import json, sqlite3
+import dbx
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,7 +49,7 @@ def statements(script):
     if buf.strip(): yield buf.strip()
 
 def prune_activity(c, days=365):
-    c.execute(f"DELETE FROM activity WHERE ts < datetime('now','-{int(days)} day')")
+    c.execute("DELETE FROM activity WHERE ts < ?", (dbx.ago(int(days)),))
 
 def pre_backup(c, folder):
     folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
@@ -67,8 +73,56 @@ def run(path, schema, backups=None):
         c.execute("DROP VIEW IF EXISTS stock"); c.execute("DROP VIEW IF EXISTS access")   # views freeze their column lists
         for st in statements(schema): c.execute(st)
         c.execute(f"PRAGMA user_version={len(STEPS)}")
+        c.execute("DELETE FROM schema_version"); c.execute("INSERT INTO schema_version(version) VALUES(?)", (len(STEPS),))
         c.execute("COMMIT")
     except BaseException:
         if c.in_transaction: c.execute("ROLLBACK")
         raise
     finally: c.close()
+
+# Upgrades for server databases, applied after the version their schema file starts at (len(STEPS) today).
+# Each is a function of the dbx connection; add new ones to the end, and the matching change to sqlite.sql's STEPS.
+SERVER_STEPS = []
+
+def schema_file(engine):
+    return (Path(__file__).parent / "schema" / f"{engine}.sql").read_text()
+
+def run_server(c, sqlite_path=None):
+    """Create or upgrade a server database, in one transaction, one process at a time.
+    Refuses to start on an empty database while a SQLite database with accounts sits in the data folder: that is
+    almost always a switch to an external database that forgot to move the data."""
+    cur = c.raw.cursor()
+    cur.execute("SELECT pg_advisory_xact_lock(726173)")              # 'craft' - other app copies wait here
+    cur.execute("SELECT to_regclass('users') IS NOT NULL")
+    exists = cur.fetchone()[0]
+    if not exists and sqlite_path and Path(sqlite_path).exists():
+        try:
+            s = sqlite3.connect(sqlite_path); n = s.execute("SELECT COUNT(*) FROM users").fetchone()[0]; s.close()
+        except sqlite3.DatabaseError: n = 0
+        if n:
+            c.rollback()
+            raise SystemExit(f"The database {dbx.CFG.describe()} is empty, but {sqlite_path} has {n} account(s). To move "
+                             f"them across, stop the app and run:  python manage.py move-db --to <your DATABASE_URL>  with "
+                             f"DATABASE_URL unset (see the README, 'Moving to another database'). To start empty "
+                             f"instead, move {sqlite_path} out of the data folder.")
+    cur.execute(schema_file(c.engine))                                  # whole script: idempotent, has $$ bodies
+    cur.execute("SELECT version FROM schema_version")
+    row = cur.fetchone(); base = len(STEPS)
+    have = row[0] if row else base
+    if not row: cur.execute("INSERT INTO schema_version(version) VALUES(%s)", (base,))
+    for n, step in enumerate(SERVER_STEPS, base + 1):
+        if n > have: step(c)
+    if have < base + len(SERVER_STEPS): cur.execute("UPDATE schema_version SET version=%s", (base + len(SERVER_STEPS),))
+    c.commit()
+    return not exists
+
+def prepare(P, wait=True):
+    """Configure the database from the environment and bring its schema up to date. Returns the dbx config."""
+    cfg = dbx.configure(dbx.config_from_env(P.db))
+    if cfg.external:
+        c = dbx.connect(cfg, wait=wait)
+        try: run_server(c, P.db)
+        finally: c.close()
+    else:
+        run(P.db, schema_file("sqlite"), P.backups)
+    return cfg

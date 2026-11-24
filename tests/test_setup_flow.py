@@ -2,7 +2,7 @@
 import json, sqlite3
 from conftest import seed
 
-def db(env): return sqlite3.connect(env.data / "craft.db")
+def db(env): return env.db()
 def fields(env, tid): return json.loads(db(env).execute("SELECT fields FROM types WHERE id=?", (tid,)).fetchone()[0])
 
 def test_new_collection_opens_it_ready_for_a_first_type(amy):

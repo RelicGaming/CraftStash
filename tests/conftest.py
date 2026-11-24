@@ -14,18 +14,48 @@ class C:
     def register(self, name, pw="password1"): self.post("/register", {"username": name, "password": pw}); return self
     def login(self, name, pw="password1"): return self.post("/login", {"username": name, "password": pw})
 
+# Run the whole suite against PostgreSQL with TEST_DATABASE_URL=postgresql://user:pass@host:5432/db. That database is
+# wiped before every test, so point it at a throw-away one. Tests marked sqlite_only are skipped then.
+TEST_DB = os.environ.get("TEST_DATABASE_URL", "").strip()
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "sqlite_only: needs the SQLite engine (skipped when TEST_DATABASE_URL is set)")
+
+def pytest_collection_modifyitems(config, items):
+    if not TEST_DB: return
+    skip = pytest.mark.skip(reason="SQLite-only test; TEST_DATABASE_URL is set")
+    for it in items:
+        if "sqlite_only" in it.keywords: it.add_marker(skip)
+
+def reset_test_db():
+    import psycopg
+    with psycopg.connect(TEST_DB, autocommit=True) as c:
+        # Connections a test left open (and the previous app's) would block the drop: end them first.
+        c.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()")
+        c.execute("DROP SCHEMA IF EXISTS public CASCADE"); c.execute("CREATE SCHEMA public")
+
 @pytest.fixture
 def make_env(tmp_path, monkeypatch):
+    fresh = [True]
     def make(**env):
+        if TEST_DB:
+            monkeypatch.setenv("DATABASE_URL", TEST_DB)
+            if fresh: reset_test_db(); fresh.clear()          # once per test: a second make_env is a restart
         monkeypatch.setenv("DATA_DIR", str(tmp_path)); monkeypatch.setenv("BACKUP_KEEP", "0"); monkeypatch.setenv("TZ", "Australia/Brisbane")
         # The app points tempfile and TMPDIR at its TMP_DIR; put them back after each test.
         import tempfile; monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
         if "TMPDIR" in os.environ: monkeypatch.setenv("TMPDIR", os.environ["TMPDIR"])
         else: monkeypatch.delenv("TMPDIR", raising=False)
         for k, v in env.items(): monkeypatch.setenv(k, str(v))
-        for m in ("app", "importer", "backup", "migrations", "manage"): sys.modules.pop(m, None)   # fresh app and database per test
+        for m in ("app", "importer", "backup", "migrations", "manage", "dump"): sys.modules.pop(m, None)   # fresh app and database per test
         mod = importlib.import_module("app")
-        return types.SimpleNamespace(mod=mod, data=tmp_path, client=lambda: C(mod.app))
+        import dbx
+        def db():       # the app's database, rows as plain tuples (as tests compare them)
+            c = dbx.connect(dbx.CFG)
+            if hasattr(c, "row_factory"): c.row_factory = None
+            else: c.raw.autocommit = True                   # a test's reads must not hold locks the app then waits on
+            return c
+        return types.SimpleNamespace(mod=mod, data=tmp_path, client=lambda: C(mod.app), db=db)
     return make
 
 @pytest.fixture

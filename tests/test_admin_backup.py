@@ -1,3 +1,4 @@
+import pytest
 import io, sqlite3, sys, zipfile
 from types import SimpleNamespace
 from conftest import seed
@@ -5,13 +6,13 @@ from conftest import seed
 def test_full_backup_contains_database_and_uploads_and_restores(env, amy):
     seed(amy); amy.post("/projects/1/upload", {"file": (io.BytesIO(b"%PDF-1.4 pattern"), "pattern.pdf")})
     r = amy.post("/admin/backup"); z = zipfile.ZipFile(io.BytesIO(r.data)); names = z.namelist()
-    assert r.mimetype == "application/zip" and "craft.db" in names and any(n.startswith("uploads/") and n.endswith(".pdf") for n in names)
+    assert r.mimetype == "application/zip" and ("craft.db" in names or "craft-dump.json" in names) and any(n.startswith("uploads/") and n.endswith(".pdf") for n in names)
     zip_path = env.data / "b.zip"; zip_path.write_bytes(r.data)
     amy.post("/items/1/delete"); amy.post("/projects/1/delete")                       # lose things after the backup...
     import backup; backup.restore(env.data, zip_path, force=True)                                # ...then restore
     c = env.client(); c.login("amy")
     assert "Merino" in c.html("/collections/1") and c.get("/files/1").status_code == 200
-    assert list((env.data / "backups").glob("pre-restore-*.db"))                       # the state before restoring is kept too
+    assert list((env.data / "backups").glob("pre-restore-*"))                       # the state before restoring is kept too
 
 def test_restore_rejects_garbage(env, amy):
     import backup; bad = env.data / "bad.zip"; bad.write_bytes(b"nope")
@@ -19,6 +20,7 @@ def test_restore_rejects_garbage(env, amy):
     except SystemExit as e: assert "healthy" in str(e) or "Not a" in str(e)
     else: raise AssertionError("garbage was accepted")
 
+@pytest.mark.sqlite_only
 def test_restore_refuses_a_database_with_virtual_tables(env, amy):
     """A crafted FTS5 index can overflow SQLite's buffers, and Craft Stash never makes virtual tables."""
     import backup; seed(amy)

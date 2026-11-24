@@ -1,11 +1,13 @@
+import pytest
 import json, sqlite3
 from pathlib import Path
 import themes
 
-OLD_SCHEMA = (Path(__file__).resolve().parent.parent / "app" / "schema.sql").read_text()
+OLD_SCHEMA = (Path(__file__).resolve().parent.parent / "app" / "schema" / "sqlite.sql").read_text()
 for frag in (", theme TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1", ", low_at REAL", ", photo TEXT NOT NULL DEFAULT ''", ", used REAL NOT NULL DEFAULT 0"):
     OLD_SCHEMA = OLD_SCHEMA.replace(frag, "")
 
+@pytest.mark.sqlite_only
 def test_old_database_is_upgraded_in_place_with_a_safety_copy(make_env, tmp_path):
     c = sqlite3.connect(tmp_path / "craft.db"); c.executescript(OLD_SCHEMA)
     c.execute("INSERT INTO users(id,username,pw,is_admin) VALUES(1,'amy','x',1)"); c.execute("INSERT INTO pools(id,user_id,name) VALUES(1,1,'Sew')")
@@ -22,6 +24,7 @@ def test_old_database_is_upgraded_in_place_with_a_safety_copy(make_env, tmp_path
     assert d.execute("PRAGMA user_version").fetchone()[0] == len(__import__("migrations").STEPS)
     assert list((tmp_path / "backups").glob("pre-migrate-*.db"))
 
+@pytest.mark.sqlite_only
 def test_migrations_are_idempotent(make_env, tmp_path):
     make_env(); first = sqlite3.connect(tmp_path / "craft.db").execute("PRAGMA user_version").fetchone()[0]
     make_env(); assert sqlite3.connect(tmp_path / "craft.db").execute("PRAGMA user_version").fetchone()[0] == first

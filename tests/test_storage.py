@@ -43,7 +43,7 @@ def test_nothing_is_written_outside_the_configured_folders(split):
 
 def test_photos_are_stored_by_name_so_the_folder_can_move(split, make_env, tmp_path_factory):
     amy = split.client().register("amy"); add_things(amy)
-    names = [r[0] for r in sqlite3.connect(split.data / "craft.db").execute("SELECT photo FROM items WHERE photo<>'' UNION ALL SELECT stored FROM step_photos")]
+    names = [r[0] for r in split.db().execute("SELECT photo FROM items WHERE photo<>'' UNION ALL SELECT stored FROM step_photos")]
     assert names and all("/" not in n and "\\" not in n for n in names)               # no folder baked into the database
     moved = tmp_path_factory.mktemp("moved"); os.rename(split.dirs["photos"], moved / "photos")
     env = make_env(PHOTOS_DIR=moved / "photos"); c = env.client(); c.login("amy")
@@ -52,7 +52,7 @@ def test_photos_are_stored_by_name_so_the_folder_can_move(split, make_env, tmp_p
 def test_backup_zip_layout_is_the_same_however_folders_are_mapped(split):
     amy = split.client().register("amy"); add_things(amy)
     names = zipfile.ZipFile(io.BytesIO(amy.post("/admin/backup").data)).namelist()
-    assert "craft.db" in names
+    assert "craft.db" in names or "craft-dump.json" in names
     assert sum(n.startswith("uploads/photos/") for n in names) == 2 and any(n.startswith("uploads/") and n.endswith(".pdf") for n in names)
 
 def test_restore_into_split_folders_puts_files_back_where_they_are_mapped(split):
@@ -65,7 +65,7 @@ def test_restore_into_split_folders_puts_files_back_where_they_are_mapped(split)
     import backup; backup.restore(split.mod.P, zp, force=True)
     assert split.dirs["photos"].stat().st_ino == inode                                # emptied, not deleted and recreated
     assert {k: listing(split.dirs[k]) for k in before} == before                       # stray file gone, originals back
-    assert list(split.dirs["backups"].glob("pre-restore-*.db"))
+    assert list(split.dirs["backups"].glob("pre-restore-*"))
 
 def test_restore_empties_a_mount_point_instead_of_removing_it(env, amy, monkeypatch):
     """Default layout, but with a separately mounted folder inside uploads that restore must leave alone."""

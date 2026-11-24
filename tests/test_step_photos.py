@@ -2,7 +2,7 @@
 import io, sqlite3
 from conftest import seed, png_bytes
 
-def db(env): return sqlite3.connect(env.data / "craft.db")
+def db(env): return env.db()
 def pic(name="p.png"): return (io.BytesIO(png_bytes()), name)
 def stored(env): return [r[0] for r in db(env).execute("SELECT stored FROM step_photos ORDER BY id")]
 def files(env): return sorted(p.name for p in (env.data / "uploads" / "photos").iterdir())
