@@ -29,17 +29,6 @@
 <div class="theme-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));max-width:420px">
 {% for r, label, px in (('square','Square','4px'),('soft','Soft','14px'),('round','Round','22px')) %}<label class="theme-opt radius-opt"><input class="sr" type="radio" name="radius" value="{{ r }}" {{ 'checked' if cur.radius == r }}><div class="rbox" style="border-radius:{{ px }}"></div><span>{{ label }}</span></label>{% endfor %}</div></section>
 
-<div class="form-actions" style="margin-bottom:24px"><button class="btn">Save appearance</button><button class="btn secondary" name="reset" value="1" formnovalidate onclick="return confirm('Reset to the default appearance?')">Reset to default</button></div>
+<div class="form-actions" style="margin-bottom:24px"><button class="btn">Save appearance</button><button class="btn secondary" name="reset" value="1" formnovalidate data-confirm="Reset to the default appearance?">Reset to default</button></div>
 </form>
-<script>(()=>{const f=document.getElementById('theme-form'),pv=document.getElementById('custom-preview').firstElementChild,out=document.getElementById('contrast'),
-rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255),lin=c=>c<=.03928?c/12.92:((c+.055)/1.055)**2.4,
-L=h=>{const[r,g,b]=rgb(h).map(lin);return .2126*r+.7152*g+.0722*b},CR=(a,b)=>{const x=L(a),y=L(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05)},
-v=n=>f.elements[n].value;
-function paint(){const ac=v('accent'),t=CR(v('ink'),v('surface')),a=CR(ac,v('surface'));
-pv.style.cssText=`--bg:${v('bg')};--surface:${v('surface')};--ink:${v('ink')};--accent:${ac};--accent-ink:${CR(ac,'#ffffff')>=CR(ac,'#111322')?'#ffffff':'#111322'}`;
-out.textContent=`Text on cards: ${t.toFixed(1)}:1 ${t>=4.5?'(good)':'(hard to read, aim for 4.5 or more)'}. Accent on cards: ${a.toFixed(1)}:1 ${a>=3?'(good)':'(low, aim for 3 or more)'}.`}
-['bg','surface','ink','accent'].forEach(n=>f.elements[n].addEventListener('input',()=>{f.querySelector('input[name=theme][value=custom]').checked=true;paint()}));
-f.elements.mode.addEventListener('change',()=>{f.querySelector('input[name=theme][value=custom]').checked=true});
-f.querySelectorAll('input[name=theme]').forEach(r=>r.addEventListener('change',()=>{if(r.dataset.bg){['bg','surface','ink','accent'].forEach(n=>f.elements[n].value=r.dataset[n]);f.elements.mode.value=r.dataset.mode;paint()}}));
-paint()})()</script>
 {% endblock %}

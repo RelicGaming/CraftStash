@@ -5,8 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
 permissions:
-  contents: read
-  packages: write
+  contents: read            # the test job runs pull-request code, so it gets read-only access
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -29,6 +28,9 @@ jobs:
     needs: test
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # only the job that publishes the image can write to GHCR
     steps:
       - uses: actions/checkout@v4
       - run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -37,8 +39,19 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE }}:latest
+          tags: ${{ steps.meta.outputs.tags }}       # :latest plus :sha-<commit>, so any earlier build can be pulled back
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

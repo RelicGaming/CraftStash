@@ -24,5 +24,5 @@
 {% if t.can_edit %}<p class="muted small" style="margin-top:14px">Need another field for {{ t.name|lower }}? <a href="{{ url_for('type_fields', tid=t.id) }}">Manage fields</a></p>{% endif %}
 <div class="form-actions"><button class="btn">Save item</button><a class="btn secondary" href="{{ url_for('pool', pid=t.pool_id) }}">Cancel</a></div></form>
 {% if i %}<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this item</h3><p class="muted small" style="margin:0">{% if used_in %}It is used in {{ used_in }} {{ 'project' if used_in == 1 else 'projects' }} and will be removed from {{ 'it' if used_in == 1 else 'them' }}.{% else %}No project uses it.{% endif %} This cannot be undone.</p></div>
-<form method="post" action="{{ url_for('item_del', iid=i.id) }}" onsubmit="return confirm('Delete this item{% if used_in %} and remove it from {{ used_in }} projects{% endif %}? This cannot be undone.')">{{ csrf }}<button class="btn danger">Delete item</button></form></div></section>{% endif %}
+<form method="post" action="{{ url_for('item_del', iid=i.id) }}" data-confirm="Delete this item{% if used_in %} and remove it from {{ used_in }} projects{% endif %}? This cannot be undone.">{{ csrf }}<button class="btn danger">Delete item</button></form></div></section>{% endif %}
 {% endblock %}

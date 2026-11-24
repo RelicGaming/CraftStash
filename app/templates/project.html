@@ -2,11 +2,11 @@
 {% block body %}
 <a class="back" href="{{ url_for('projects') }}"><svg class="i"><use href="#i-chev-l"/></svg>Projects</a>
 <div class="page-head"><h1>{{ p.name }}</h1><span class="pill {{ {'active':'accent','done':'ok'}.get(p.status,'') }}">{{ p.status|capitalize }}</span><span class="grow"></span>
-<div class="actions"><button class="btn secondary" onclick="window.print()"><svg class="i"><use href="#i-print"/></svg>Print</button>
+<div class="actions"><button class="btn secondary" data-print type="button"><svg class="i"><use href="#i-print"/></svg>Print</button>
 <form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn secondary">{{ 'Duplicate' if mine else 'Save a copy' }}</button></form>
-{% if mine and p.status == 'done' %}<form method="post" action="{{ url_for('reopen', id=p.id) }}" onsubmit="return confirm('Reopen this project? The materials it used go back into stock.')">{{ csrf }}<button class="btn secondary">Reopen</button></form>{% endif %}
+{% if mine and p.status == 'done' %}<form method="post" action="{{ url_for('reopen', id=p.id) }}" data-confirm="Reopen this project? The materials it used go back into stock.">{{ csrf }}<button class="btn secondary">Reopen</button></form>{% endif %}
 {% if not mine %}<form method="post" action="{{ url_for('leave_project', id=p.id) }}">{{ csrf }}<button class="btn ghost danger">Stop following</button></form>{% endif %}
-{% if mine and p.status != 'done' and assigned %}<form method="post" action="{{ url_for('complete', id=p.id) }}" onsubmit="return confirm('Mark as done and deduct the assigned materials from stock?')">{{ csrf }}<button class="btn"><svg class="i"><use href="#i-check"/></svg>Mark complete</button></form>{% endif %}</div></div>
+{% if mine and p.status != 'done' and assigned %}<form method="post" action="{{ url_for('complete', id=p.id) }}" data-confirm="Mark as done and deduct the assigned materials from stock?">{{ csrf }}<button class="btn"><svg class="i"><use href="#i-check"/></svg>Mark complete</button></form>{% endif %}</div></div>
 {% if not mine %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Shared by {{ p.owner }}. You can view and print this project but not change it.</span></div>{% endif %}
 {% if p.notes %}<div class="print-only" style="white-space:pre-wrap;margin-bottom:12px">{{ p.notes }}</div>{% endif %}
 <div class="cols"><div>
@@ -29,7 +29,7 @@
 <div class="actions"><button class="btn sm">Save step</button></div></form>
 <div class="actions" style="margin-top:8px"><form method="post" action="{{ url_for('move_step', sid=s.id) }}">{{ csrf }}<input type="hidden" name="dir" value="up"><button class="btn secondary sm">Move up</button></form>
 <form method="post" action="{{ url_for('move_step', sid=s.id) }}">{{ csrf }}<input type="hidden" name="dir" value="down"><button class="btn secondary sm">Move down</button></form>
-<form method="post" action="{{ url_for('delete_step', sid=s.id) }}" onsubmit="return confirm('Delete this step?')">{{ csrf }}<button class="btn ghost danger sm">Delete</button></form></div></details>{% endif %}</div></li>{% endfor %}</ol>
+<form method="post" action="{{ url_for('delete_step', sid=s.id) }}" data-confirm="Delete this step?">{{ csrf }}<button class="btn ghost danger sm">Delete</button></form></div></details>{% endif %}</div></li>{% endfor %}</ol>
 {% elif not mine %}<p class="muted">No steps written yet.</p>{% endif %}
 {% if mine %}<form class="stitch noprint" style="border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px" method="post" action="{{ url_for('add_step', id=p.id) }}">{{ csrf }}
 <input name="title" placeholder="Step title (optional)" maxlength="100" aria-label="Step title"><textarea name="body" rows="3" placeholder="What to do in this step" maxlength="3000" aria-label="Instructions"></textarea>
@@ -53,6 +53,6 @@
 <form method="post" action="{{ url_for('unshare_project', id=p.id, user=s.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form></div>
 {% else %}<p class="muted small">Not shared. People you add see materials, steps and files, but not your stock.</p>{% endfor %}
 <form class="inline" style="margin-top:12px" method="post" action="{{ url_for('share_project', id=p.id) }}">{{ csrf }}<input name="username" placeholder="Username" required aria-label="Username"><button class="btn secondary">Share</button></form></section>
-<form class="noprint" method="post" action="{{ url_for('del_project', id=p.id) }}" onsubmit="return confirm('Delete this project and its files?')">{{ csrf }}<button class="btn ghost danger">Delete project</button></form>{% endif %}
+<form class="noprint" method="post" action="{{ url_for('del_project', id=p.id) }}" data-confirm="Delete this project and its files?">{{ csrf }}<button class="btn ghost danger">Delete project</button></form>{% endif %}
 </div></div>
 {% endblock %}

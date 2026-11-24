@@ -12,5 +12,4 @@
 {% if s.can_edit %}<form class="inline noprint" method="post" action="{{ url_for('item_adjust', iid=s.id) }}">{{ csrf }}<input type="hidden" name="action" value="add"><input type="hidden" name="next" value="{{ request.full_path }}">
 <input name="amount" type="number" step="any" min="0" placeholder="Bought" required aria-label="Amount bought" style="width:84px;flex:none"><button class="btn secondary sm">Restock</button></form>{% endif %}</div>{% endfor %}</section>
 {% else %}<div class="panel stitch"><h3>Nothing to buy</h3><p class="muted">Everything is above its low-stock level.</p></div>{% endfor %}
-<script>document.getElementById('copy')?.addEventListener('click',async e=>{const t=[...document.querySelectorAll('[data-line]')].map(n=>'- '+n.dataset.line).join('\n');try{await navigator.clipboard.writeText(t);e.target.lastChild.textContent='Copied'}catch(_){prompt('Copy this list:',t)}})</script>
 {% endblock %}

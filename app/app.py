@@ -19,7 +19,7 @@ ALLOWED = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt", "md", "doc", "docx
 INLINE = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt"}  # everything else downloads
 QUOTA = int(os.environ.get("USER_QUOTA_MB", "500") or 0) * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = 40_000_000
-CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 app = Flask(__name__)
@@ -64,13 +64,24 @@ def run(sql, *a):
     c = db().execute(sql, a); db().commit(); return c
 def uid(): return g.user["id"]
 
+backup.hold_app_lock(DATA)          # first, so `manage.py restore` refuses to run under a live app
 migrations.run(DATA / "craft.db", (Path(__file__).parent / "schema.sql").read_text())
+backup.clean_leftovers(DATA)
 backup.start_snapshots(DATA, int(os.environ.get("BACKUP_KEEP", "7") or 0))
+
+_pruned = {"at": 0.0}
+def prune_daily():                  # old activity goes once a day, not just when the container restarts
+    if time.time() - _pruned["at"] < 86400: return
+    _pruned["at"] = time.time()
+    migrations.prune_activity(db()); db().commit()
 
 def num(v, default=0.0):
     try: x = float(v)
     except (TypeError, ValueError): return default
     return x if math.isfinite(x) and x >= 0 else default
+
+LIKE = "LIKE ? ESCAPE '!'"
+def like(term): return "%" + re.sub(r"[!%_]", lambda m: "!" + m[0], term) + "%"   # so "50%" or "a_b" match literally
 
 def clean(name, n=120): return (request.form.get(name) or "").strip()[:n]
 
@@ -147,10 +158,11 @@ def save_photo(f):
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError): return None
 
 def pool_impact(pid):
-    d = db()
-    return {"items": d.execute("SELECT COUNT(*) FROM stock WHERE pool_id=?", (pid,)).fetchone()[0],
-            "projects": d.execute("SELECT COUNT(DISTINCT a.project_id) FROM assignments a JOIN stock s ON s.id=a.item_id WHERE s.pool_id=?", (pid,)).fetchone()[0],
-            "people": d.execute("SELECT COUNT(*) FROM pool_shares WHERE pool_id=?", (pid,)).fetchone()[0]}
+    r = db().execute("""SELECT (SELECT COUNT(*) FROM items i JOIN types t ON t.id=i.type_id WHERE t.pool_id=:p) AS items,
+                               (SELECT COUNT(DISTINCT a.project_id) FROM assignments a JOIN items i ON i.id=a.item_id
+                                  JOIN types t ON t.id=i.type_id WHERE t.pool_id=:p) AS projects,
+                               (SELECT COUNT(*) FROM pool_shares WHERE pool_id=:p) AS people""", {"p": pid}).fetchone()
+    return dict(r)
 
 def type_impact(tid):
     d = db()
@@ -181,6 +193,7 @@ def gate():
         abort(400)
     if not g.user and request.endpoint not in ("login", "register"):
         return redirect(url_for("login"))
+    prune_daily()
 
 @app.after_request
 def headers(r):
@@ -192,6 +205,7 @@ def headers(r):
     return r
 
 LOW = "(s.qty<=0 OR (s.low_at IS NOT NULL AND s.qty<=s.low_at) OR s.free<0)"
+CAN_EDIT = "EXISTS(SELECT 1 FROM access x WHERE x.pool_id=s.pool_id AND x.user_id=? AND x.can_edit=1)"   # s = a stock row
 
 @app.context_processor
 def ctx():
@@ -208,36 +222,55 @@ def healthz(): return "ok"
 # ---------- auth ----------
 def no_users(): return db().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
 
-FAILS = {}  # "ip|username" -> recent failure times (single worker, so in-memory is enough)
+# Recent login failures (single worker, so in-memory is enough). Three counters per attempt:
+#   "ip|name" - one address guessing one account          (FAIL_LIMIT)
+#   "ip|*"    - one address spraying many usernames       (IP_LIMIT)
+#   "*|name"  - many addresses guessing one account       (USER_LIMIT)
+FAILS = {}
+FAIL_WINDOW, FAIL_LIMIT, IP_LIMIT, USER_LIMIT, FAIL_KEYS = 600, 8, 40, 50, 20000
 
-def throttled(key):
+def _fail_keys(ip, name): return (f"{ip}|{name}", f"{ip}|*", f"*|{name}")
+
+def _recent(key, now):
+    ts = [t for t in FAILS.get(key, ()) if now - t < FAIL_WINDOW]
+    if ts: FAILS[key] = ts
+    else: FAILS.pop(key, None)
+    return len(ts)
+
+def throttled(ip, name):
+    now = time.time(); pair, by_ip, by_user = _fail_keys(ip, name)
+    return _recent(pair, now) >= FAIL_LIMIT or _recent(by_ip, now) >= IP_LIMIT or _recent(by_user, now) >= USER_LIMIT
+
+def record_fail(ip, name):
     now = time.time()
-    if len(FAILS) > 5000: FAILS.clear()
-    FAILS[key] = [t for t in FAILS.get(key, []) if now - t < 600]
-    return len(FAILS[key]) >= 8
+    room = FAIL_KEYS - 3            # each failure adds up to 3 keys
+    if len(FAILS) > room:           # full: drop expired entries, then the least recently failed ones (never all of them)
+        for k in [k for k, v in FAILS.items() if now - v[-1] >= FAIL_WINDOW]: del FAILS[k]
+        while len(FAILS) > room: del FAILS[next(iter(FAILS))]
+    for k in _fail_keys(ip, name): FAILS[k] = FAILS.pop(k, []) + [now]   # re-insert so dict order = recency
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        name = clean("username", 40); key = f"{request.remote_addr}|{name.lower()}"
-        if throttled(key):
+        name = clean("username", 40); ip = request.remote_addr or "?"
+        if throttled(ip, name.lower()):
             flash("Too many failed attempts. Wait a few minutes and try again.")
         else:
             u = db().execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
             if u and check_password_hash(u["pw"], request.form.get("password", "")):
                 if not u["active"]: flash("This account is disabled. Ask an admin.")
                 else:
-                    FAILS.pop(key, None); session.clear(); session["uid"] = u["id"]
+                    FAILS.pop(f"{ip}|{name.lower()}", None); session.clear(); session["uid"] = u["id"]
                     session["pwv"] = pwv(u["pw"]); session.permanent = True
                     return redirect(url_for("home"))
             else:
-                FAILS.setdefault(key, []).append(time.time()); flash("Wrong username or password.")
-    return render_template("auth.html", mode="login", can_register=no_users() or signups_open())
+                record_fail(ip, name.lower()); flash("Wrong username or password.")
+    return render_template("auth.html", mode="login", can_register=signups_open(), first_run=no_users())
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     first = no_users()
-    if not first and not signups_open(): abort(403)
+    if not signups_open(): abort(403)     # ALLOW_SIGNUP=0 also closes the first-admin sign-up (use manage.py create-user)
     if request.method == "POST":
         name, pw = clean("username", 40), request.form.get("password", "")
         if valid_account(name, pw):
@@ -326,7 +359,7 @@ def admin_currency():
 @app.post("/admin/backup")
 def admin_backup():
     admin_only()
-    fd, tmp = tempfile.mkstemp(suffix=".zip"); os.close(fd)
+    fd, tmp = tempfile.mkstemp(prefix=".download-", suffix=".zip", dir=DATA); os.close(fd)   # on the volume, not the container layer
     backup.make_zip(DATA, tmp)
     @after_this_request
     def _remove(resp):
@@ -407,25 +440,27 @@ SORTS = {"name": "name COLLATE NOCASE", "colour": "colour COLLATE NOCASE, name C
 
 @app.get("/collections/<int:pid>")
 def pool(pid):
-    p, term, groups = pool_of(pid), request.args.get("q", "").strip(), []
+    p, term = pool_of(pid), request.args.get("q", "").strip()
     sort = request.args.get("sort", "name"); sort = sort if sort in SORTS else "name"
     types = q("SELECT * FROM types WHERE pool_id=? ORDER BY name", pid)
-    labels = [f["label"] for t in types for f in json.loads(t["fields"])]
+    fields = {t["id"]: json.loads(t["fields"]) for t in types}
+    labels = [f["label"] for fl in fields.values() for f in fl]
     m = re.match(r"^([^:]{1,40}):\s*(.+)$", term)
-    keyed = bool(m) and m[1].strip().lower() in {l.lower() for l in labels}   # "Width:150" filters that field
-    for t in types:
-        fl = json.loads(t["fields"])
-        sql, args = "SELECT * FROM stock WHERE type_id=?", [t["id"]]
-        if keyed:
-            ids = [f["id"] for f in fl if f["label"].lower() == m[1].strip().lower()]
-            if not ids: continue
-            sql += " AND (" + " OR ".join(["json_extract(extra, ?) LIKE ?"] * len(ids)) + ")"
-            for i in ids: args += [f'$."{i}"', f"%{m[2].strip()}%"]
-        elif term:
-            sql += """ AND (name LIKE ? OR colour LIKE ? OR subtype LIKE ? OR notes LIKE ? OR location LIKE ?
-                       OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value LIKE ?))"""
-            args += [f"%{term}%"] * 6
-        groups.append((t, fl, q(sql + " ORDER BY " + SORTS[sort], *args)))
+    key = m[1].strip().lower() if m else ""
+    keyed = bool(m) and key in {l.lower() for l in labels}   # "Width:150" filters that field
+    sql, args = "SELECT * FROM stock WHERE pool_id=?", [pid]      # one query for the whole collection, grouped below
+    if keyed:
+        ids = [f["id"] for fl in fields.values() for f in fl if f["label"].lower() == key]   # ids are unique per field
+        sql += " AND (" + " OR ".join([f"json_extract(extra, ?) {LIKE}"] * len(ids)) + ")"
+        for i in ids: args += [f'$."{i}"', like(m[2].strip())]
+    elif term:
+        sql += f""" AND (name {LIKE} OR colour {LIKE} OR subtype {LIKE} OR notes {LIKE} OR location {LIKE}
+                    OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE}))"""
+        args += [like(term)] * 6
+    by_type = {}
+    for r in q(sql + " ORDER BY " + SORTS[sort], *args): by_type.setdefault(r["type_id"], []).append(r)
+    groups = [(t, fields[t["id"]], by_type.get(t["id"], [])) for t in types
+              if not keyed or any(f["label"].lower() == key for f in fields[t["id"]])]
     shares = q("""SELECT u.id, u.username, s.can_edit FROM pool_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.pool_id=? ORDER BY u.username""", pid) if p["is_owner"] else []
     return render_template("pool.html", pool=p, groups=groups, term=term, shares=shares, hint=(labels or ["Width"])[0], sort=sort, impact=pool_impact(pid) if p["is_owner"] else None,
@@ -440,6 +475,7 @@ def share_pool(pid):
         run("""INSERT INTO pool_shares(pool_id,user_id,can_edit) VALUES(?,?,?)
                ON CONFLICT(pool_id,user_id) DO UPDATE SET can_edit=excluded.can_edit""",
             pid, u["id"], int(request.form.get("role") == "edit"))
+        if request.form.get("role") != "edit": drop_reservations(pid, u["id"])   # view-only can't reserve or use stock
     return redirect(url_for("pool", pid=pid))
 
 @app.post("/collections/<int:pid>/unshare/<int:user>")
@@ -759,6 +795,9 @@ def complete(id):
     pr = project_of(id, True)
     if pr["status"] != "done":
         d = db()
+        # reservations on collections the owner can no longer edit are stale: drop them instead of using that stock
+        d.execute(f"""DELETE FROM assignments WHERE project_id=? AND consumed=0 AND item_id IN
+                      (SELECT s.id FROM stock s WHERE NOT {CAN_EDIT})""", (id, pr["user_id"]))
         for a in q("""SELECT a.id, a.item_id, a.qty, s.qty AS have, s.name, s.unit, s.pool_id FROM assignments a
                       JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=0""", id):
             used = min(a["qty"], a["have"])
@@ -772,13 +811,15 @@ def complete(id):
 def reopen(id):
     pr = project_of(id, True)
     if pr["status"] == "done":
-        d = db()
-        for a in q("""SELECT a.id, a.item_id, a.used, s.name, s.unit, s.pool_id FROM assignments a
-                      JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=1""", id):
+        d = db(); kept = 0
+        for a in q(f"""SELECT a.id, a.item_id, a.used, s.name, s.unit, s.pool_id, {CAN_EDIT} AS can_edit FROM assignments a
+                       JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=1""", pr["user_id"], id):
+            if not a["can_edit"]: kept += 1; continue     # no longer allowed to change that collection: leave it as used
             d.execute("UPDATE items SET qty=qty+? WHERE id=?", (a["used"], a["item_id"]))
             d.execute("UPDATE assignments SET consumed=0, used=0 WHERE id=?", (a["id"],))
             if a["used"]: log(a["pool_id"], "project", f"{pr['name']} reopened: returned {a['used']:g} {a['unit']} of {a['name']}", a["item_id"], a["used"], commit=False)
         d.execute("UPDATE projects SET status='active' WHERE id=?", (id,)); d.commit()
+        if kept: flash(f"{kept} material(s) stayed used: you can no longer edit the collection they came from.")
     return redirect(url_for("project", id=id))
 
 @app.post("/projects/<int:id>/copy")
@@ -791,15 +832,24 @@ def copy_project(id):
     nid = d.execute("INSERT INTO projects(user_id,name,notes) VALUES(?,?,?)",
                     (uid(), (pr["name"] + " (copy)" if mine else pr["name"])[:100], notes[:5000])).lastrowid
     d.execute("INSERT INTO steps(project_id,pos,title,body) SELECT ?,pos,title,body FROM steps WHERE project_id=?", (nid, id))
-    if mine: d.execute("INSERT INTO assignments(project_id,item_id,qty) SELECT ?,item_id,qty FROM assignments WHERE project_id=?", (nid, id))
-    skipped = False
-    for f in q("SELECT * FROM files WHERE project_id=?", id):
-        if QUOTA and used_bytes(uid()) + f["size"] > QUOTA: skipped = True; continue
-        stored = uuid.uuid4().hex + "." + f["stored"].rsplit(".", 1)[-1]
-        shutil.copyfile(UPLOADS / f["stored"], UPLOADS / stored)
-        d.execute("INSERT INTO files(project_id,name,stored,size) VALUES(?,?,?,?)", (nid, f["name"], stored, f["size"])); d.commit()
-    d.commit()
-    if skipped: flash("Some files weren't copied because you're over your storage limit.")
+    if mine: d.execute(f"""INSERT INTO assignments(project_id,item_id,qty) SELECT ?, a.item_id, a.qty FROM assignments a
+                           JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND {CAN_EDIT}""", (nid, id, uid()))
+    over = missing = 0; copied = []
+    try:
+        for f in q("SELECT * FROM files WHERE project_id=?", id):
+            if QUOTA and used_bytes(uid()) + f["size"] > QUOTA: over += 1; continue
+            stored = uuid.uuid4().hex + "." + f["stored"].rsplit(".", 1)[-1]
+            try: shutil.copyfile(UPLOADS / f["stored"], UPLOADS / stored)
+            except FileNotFoundError: missing += 1; continue
+            copied.append(stored)
+            d.execute("INSERT INTO files(project_id,name,stored,size) VALUES(?,?,?,?)", (nid, f["name"], stored, f["size"]))
+        d.commit()                                   # one commit: the copy appears whole or not at all
+    except Exception:
+        d.rollback()
+        for s in copied: (UPLOADS / s).unlink(missing_ok=True)
+        raise
+    if over: flash("Some files weren't copied because you're over your storage limit.")
+    if missing: flash(f"{missing} file(s) were missing from storage and weren't copied.")
     return redirect(url_for("project", id=nid))
 
 @app.post("/projects/<int:id>/leave")

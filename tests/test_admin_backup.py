@@ -8,14 +8,14 @@ def test_full_backup_contains_database_and_uploads_and_restores(env, amy):
     assert r.mimetype == "application/zip" and "craft.db" in names and any(n.startswith("uploads/") and n.endswith(".pdf") for n in names)
     zip_path = env.data / "b.zip"; zip_path.write_bytes(r.data)
     amy.post("/items/1/delete"); amy.post("/projects/1/delete")                       # lose things after the backup...
-    import backup; backup.restore(env.data, zip_path)                                  # ...then restore
+    import backup; backup.restore(env.data, zip_path, force=True)                                # ...then restore
     c = env.client(); c.login("amy")
     assert "Merino" in c.html("/collections/1") and c.get("/files/1").status_code == 200
     assert list((env.data / "backups").glob("pre-restore-*.db"))                       # the state before restoring is kept too
 
 def test_restore_rejects_garbage(env, amy):
     import backup; bad = env.data / "bad.zip"; bad.write_bytes(b"nope")
-    try: backup.restore(env.data, bad)
+    try: backup.restore(env.data, bad, force=True)
     except SystemExit as e: assert "healthy" in str(e) or "Not a" in str(e)
     else: raise AssertionError("garbage was accepted")
 

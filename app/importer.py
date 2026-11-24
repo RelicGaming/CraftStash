@@ -12,13 +12,29 @@ TEMPLATE = ("Material type,Name,Colour,Variant,In stock,Unit,Price per unit,Low 
             "Fabric,Poplin,White,Cotton poplin,3,m,12.50,1,Shelf 2,,#ffffff,150,Cotton\r\n"
             "Thread,Sew-all,Red,Polyester,5,spool,3.20,2,Drawer 1,Good for sewing,#cc2222,,\r\n")
 
-def to_num(v):
+GROUPED = re.compile(r"-?\d{1,3}(?:([.,])\d{3})+")       # 1,234,567 or 1.234.567: thousands separators only
+
+def to_num(v, negative=False):
+    """Read a number written either way round: 1,234.50 / 1.234,50 / 2,5 / 1 234,5. Raises ValueError with a message."""
     if not (v or "").strip(): return None
+    bad = ValueError(f"'{v.strip()}' is not a valid number")
     s = re.sub(r"[^\d.,-]", "", v)
-    if not s: raise ValueError(v)                     # text like "lots" is an error, not an empty cell
-    s = s.replace(",", ".") if "," in s and "." not in s else s.replace(",", "")
-    x = float(s)                                  # ValueError on junk like 1.2.3
-    if not math.isfinite(x) or x < 0: raise ValueError(v)
+    if not s: raise bad                               # text like "lots" is an error, not an empty cell
+    if "," in s and "." in s:                         # both: the last one is the decimal point
+        dec = "," if s.rfind(",") > s.rfind(".") else "."
+        whole, frac = s.rsplit(dec, 1)
+        if not GROUPED.fullmatch(whole) and not re.fullmatch(r"-?\d+", whole): raise bad
+        s = re.sub(r"[.,]", "", whole) + "." + frac
+    elif s.count(",") + s.count(".") > 1:             # several of one kind: thousands separators
+        if not GROUPED.fullmatch(s): raise bad
+        s = re.sub(r"[.,]", "", s)
+    elif "," in s:
+        if re.fullmatch(r"-?[1-9]\d{0,2},\d{3}", s):    # 1,500 could be 1500 or 1.5
+            raise ValueError(f"'{v.strip()}' is ambiguous: write {s.replace(',', '')} or {float(s.replace(',', '.')):g}")
+        s = s.replace(",", ".")
+    try: x = float(s)
+    except ValueError: raise bad from None
+    if not math.isfinite(x) or (x < 0 and not negative): raise bad
     return x
 
 def run_import(d, pool_id, text, update=True, default_type="Imported"):
@@ -46,17 +62,22 @@ def run_import(d, pool_id, text, update=True, default_type="Imported"):
         name = r.get("name", "")[:120]
         if not name: bad(n, "no name"); continue
         try: qty, price, low = to_num(r.get("qty")), to_num(r.get("price")), to_num(r.get("low"))
-        except ValueError as e: bad(n, f"'{e}' is not a valid number"); continue
+        except ValueError as e: bad(n, str(e)); continue
         tname = (r.get("type") or default_type)[:60]
         t = types.get(tname.lower())
+        cells = [(label, row[i].strip()[:200]) for i, label in extras if i < len(row) and row[i].strip()]
+        if t:                                         # number fields get the same clean-up as the item form
+            try:
+                for k, (label, val) in enumerate(cells):
+                    f = next((f for f in t["fl"] if f["label"].lower() == label.lower()), None)
+                    if f and f["type"] == "number": cells[k] = (label, f"{to_num(val, negative=True):g}")
+            except ValueError as e: bad(n, f"{label}: {e}"); continue
         if not t:
             unit = (r.get("unit") or "pcs")[:20]
             cur = d.execute("INSERT INTO types(pool_id,name,unit,fields) VALUES(?,?,?,'[]')", (pool_id, tname, unit))
             t = types[tname.lower()] = {"id": cur.lastrowid, "fl": [], "dirty": False}; res["new_types"] += 1
         ex = {}
-        for i, label in extras:
-            val = row[i].strip()[:200] if i < len(row) else ""
-            if not val: continue
+        for label, val in cells:
             f = next((f for f in t["fl"] if f["label"].lower() == label.lower()), None)
             if not f:
                 if len(t["fl"]) >= 20: continue

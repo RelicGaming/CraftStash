@@ -19,6 +19,10 @@ CREATE INDEX IF NOT EXISTS ix_steps_project ON steps(project_id);
 CREATE INDEX IF NOT EXISTS ix_activity_pool ON activity(pool_id, id);
 CREATE INDEX IF NOT EXISTS ix_pool_shares_user ON pool_shares(user_id);
 CREATE INDEX IF NOT EXISTS ix_project_shares_user ON project_shares(user_id);
+CREATE INDEX IF NOT EXISTS ix_pools_user ON pools(user_id);
+CREATE INDEX IF NOT EXISTS ix_projects_user ON projects(user_id);
+CREATE INDEX IF NOT EXISTS ix_activity_user ON activity(user_id);
+CREATE INDEX IF NOT EXISTS ix_activity_ts ON activity(ts);
 CREATE VIEW IF NOT EXISTS access AS
   SELECT id AS pool_id, user_id, 1 AS can_edit, 1 AS is_owner FROM pools
   UNION ALL SELECT pool_id, user_id, can_edit, 0 FROM pool_shares;
