@@ -799,15 +799,27 @@ def complete(id):
         d.execute(f"""DELETE FROM assignments WHERE project_id=? AND consumed=0 AND item_id IN
                       (SELECT s.id FROM stock s WHERE NOT {CAN_EDIT})""", (id, pr["user_id"]))
         keep = request.form.get("stock") == "keep"   # "Complete, keep stock": close the project, leave quantities alone
+        capped = 0
         for a in q("""SELECT a.id, a.item_id, a.qty, s.qty AS have, s.name, s.unit, s.pool_id FROM assignments a
                       JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=0""", id):
-            used = 0 if keep else min(a["qty"], a["have"])     # used=0 also means reopening puts nothing back
+            want = 0 if keep else num(request.form.get(f"used_{a['id']}"), a["qty"])   # the amount actually used, if given
+            used = min(want, a["have"])                        # used=0 also means reopening puts nothing back
+            if used < want - 1e-9: capped += 1
             if used: d.execute("UPDATE items SET qty=qty-? WHERE id=?", (used, a["item_id"]))
             d.execute("UPDATE assignments SET consumed=1, used=? WHERE id=?", (used, a["id"]))
             if used: log(a["pool_id"], "project", f"{pr['name']}: used {used:g} {a['unit']} of {a['name']}", a["item_id"], -used, commit=False)
         d.execute("UPDATE projects SET status='done' WHERE id=?", (id,)); d.commit()
         if keep: flash("Project marked done. Your stock was left as it was.")
+        if capped: flash(f"{capped} material(s) had less in stock than you entered, so only what was there was deducted.")
     return redirect(url_for("project", id=id))
+
+@app.get("/projects/<int:id>/finish")
+def finish(id):
+    pr = project_of(id, True)
+    if pr["status"] in ("done", "template"): return redirect(url_for("project", id=id))
+    rows = q("""SELECT a.id, a.qty, s.name, s.colour, s.hex, s.tname, s.unit, s.qty AS have FROM assignments a
+                JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=0 ORDER BY s.pname, s.tname, s.name""", id)
+    return render_template("finish.html", p=pr, rows=rows)
 
 @app.post("/projects/<int:id>/reopen")
 def reopen(id):
