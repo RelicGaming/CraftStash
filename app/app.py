@@ -424,6 +424,28 @@ def home():
                  WHERE a.user_id=? ORDER BY a.is_owner DESC, p.name""", uid())
     return render_template("home.html", pools=pools)
 
+SEARCH_LIMIT = 200
+
+@app.get("/search")
+def search():
+    term = request.args.get("q", "").strip()[:100]
+    items, projects, more, fields = [], [], False, {}
+    if term:
+        fields = {t["id"]: json.loads(t["fields"]) for t in
+                  q("SELECT t.id, t.fields FROM types t JOIN access a ON a.pool_id=t.pool_id WHERE a.user_id=?", uid())}
+        cond, args, _ = match(term, fields)
+        items = q(f"""SELECT stock.*, a.can_edit, a.is_owner, u.username AS owner FROM stock JOIN access a ON a.pool_id=stock.pool_id
+                      JOIN users u ON u.id=stock.user_id WHERE a.user_id=? AND {cond}
+                      ORDER BY a.is_owner DESC, stock.pname COLLATE NOCASE, stock.pool_id, stock.tname COLLATE NOCASE, stock.name COLLATE NOCASE
+                      LIMIT ?""", uid(), *args, SEARCH_LIMIT + 1)
+        more = len(items) > SEARCH_LIMIT; items = items[:SEARCH_LIMIT]
+        me = uid()
+        projects = q(f"""SELECT p.id, p.name, p.status, u.username AS owner, p.user_id FROM projects p JOIN users u ON u.id=p.user_id
+                         WHERE (p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?))
+                           AND (p.name {LIKE} OR p.notes {LIKE}) ORDER BY p.user_id<>?, p.status='done', p.name LIMIT 50""",
+                     me, me, like(term), like(term), me)
+    return render_template("search.html", term=term, items=items, projects=projects, more=more, fields=fields, limit=SEARCH_LIMIT)
+
 @app.post("/collections")
 def new_pool():
     if clean("name", 80):
@@ -438,6 +460,20 @@ def del_pool(pid):
 SORTS = {"name": "name COLLATE NOCASE", "colour": "colour COLLATE NOCASE, name COLLATE NOCASE",
          "low": "qty ASC, name COLLATE NOCASE", "new": "id DESC"}
 
+def match(term, fields):
+    """SQL condition (on a stock row) for a search term. fields maps type id -> field list.
+    "Label:value" searches just that custom field when some type has it; otherwise every text column and field."""
+    labels = [f["label"] for fl in fields.values() for f in fl]
+    m = re.match(r"^([^:]{1,40}):\s*(.+)$", term)
+    key = m[1].strip().lower() if m else ""
+    if m and key in {l.lower() for l in labels}:   # "Width:150" filters that field
+        ids = [f["id"] for fl in fields.values() for f in fl if f["label"].lower() == key]   # ids are unique per field
+        args = []
+        for i in ids: args += [f'$."{i}"', like(m[2].strip())]
+        return "(" + " OR ".join([f"json_extract(stock.extra, ?) {LIKE}"] * len(ids)) + ")", args, key
+    return (f"""(stock.name {LIKE} OR stock.colour {LIKE} OR stock.subtype {LIKE} OR stock.notes {LIKE} OR stock.location {LIKE}
+                OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE}))""", [like(term)] * 6, "")
+
 @app.get("/collections/<int:pid>")
 def pool(pid):
     p, term = pool_of(pid), request.args.get("q", "").strip()
@@ -445,18 +481,11 @@ def pool(pid):
     types = q("SELECT * FROM types WHERE pool_id=? ORDER BY name", pid)
     fields = {t["id"]: json.loads(t["fields"]) for t in types}
     labels = [f["label"] for fl in fields.values() for f in fl]
-    m = re.match(r"^([^:]{1,40}):\s*(.+)$", term)
-    key = m[1].strip().lower() if m else ""
-    keyed = bool(m) and key in {l.lower() for l in labels}   # "Width:150" filters that field
     sql, args = "SELECT * FROM stock WHERE pool_id=?", [pid]      # one query for the whole collection, grouped below
-    if keyed:
-        ids = [f["id"] for fl in fields.values() for f in fl if f["label"].lower() == key]   # ids are unique per field
-        sql += " AND (" + " OR ".join([f"json_extract(extra, ?) {LIKE}"] * len(ids)) + ")"
-        for i in ids: args += [f'$."{i}"', like(m[2].strip())]
-    elif term:
-        sql += f""" AND (name {LIKE} OR colour {LIKE} OR subtype {LIKE} OR notes {LIKE} OR location {LIKE}
-                    OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE}))"""
-        args += [like(term)] * 6
+    key = ""
+    if term:
+        cond, more, key = match(term, fields); sql += " AND " + cond; args += more
+    keyed = bool(key)
     by_type = {}
     for r in q(sql + " ORDER BY " + SORTS[sort], *args): by_type.setdefault(r["type_id"], []).append(r)
     groups = [(t, fields[t["id"]], by_type.get(t["id"], [])) for t in types
@@ -824,15 +853,27 @@ def complete(id):
         d.execute(f"""DELETE FROM assignments WHERE project_id=? AND consumed=0 AND item_id IN
                       (SELECT s.id FROM stock s WHERE NOT {CAN_EDIT})""", (id, pr["user_id"]))
         keep = request.form.get("stock") == "keep"   # "Complete, keep stock": close the project, leave quantities alone
+        capped = 0
         for a in q("""SELECT a.id, a.item_id, a.qty, s.qty AS have, s.name, s.unit, s.pool_id FROM assignments a
                       JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=0""", id):
-            used = 0 if keep else min(a["qty"], a["have"])     # used=0 also means reopening puts nothing back
+            want = 0 if keep else num(request.form.get(f"used_{a['id']}"), a["qty"])   # the amount actually used, if given
+            used = min(want, a["have"])                        # used=0 also means reopening puts nothing back
+            if used < want - 1e-9: capped += 1
             if used: d.execute("UPDATE items SET qty=qty-? WHERE id=?", (used, a["item_id"]))
             d.execute("UPDATE assignments SET consumed=1, used=? WHERE id=?", (used, a["id"]))
             if used: log(a["pool_id"], "project", f"{pr['name']}: used {used:g} {a['unit']} of {a['name']}", a["item_id"], -used, commit=False)
         d.execute("UPDATE projects SET status='done' WHERE id=?", (id,)); d.commit()
         if keep: flash("Project marked done. Your stock was left as it was.")
+        if capped: flash(f"{capped} material(s) had less in stock than you entered, so only what was there was deducted.")
     return redirect(url_for("project", id=id))
+
+@app.get("/projects/<int:id>/finish")
+def finish(id):
+    pr = project_of(id, True)
+    if pr["status"] in ("done", "template"): return redirect(url_for("project", id=id))
+    rows = q("""SELECT a.id, a.qty, s.name, s.colour, s.hex, s.tname, s.unit, s.qty AS have FROM assignments a
+                JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND a.consumed=0 ORDER BY s.pname, s.tname, s.name""", id)
+    return render_template("finish.html", p=pr, rows=rows)
 
 @app.post("/projects/<int:id>/reopen")
 def reopen(id):

@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block title %}Finish {{ p.name }} - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('project', id=p.id) }}"><svg class="i"><use href="#i-chev-l"/></svg>{{ p.name }}</a>
+<div class="page-head"><h1>Finish project</h1></div>
+<p class="muted" style="margin-top:-8px">Enter how much of each material you actually used. That amount comes off your stock; anything you didn't use stays. Enter 0 for something you didn't use at all.</p>
+<form method="post" action="{{ url_for('complete', id=p.id) }}">{{ csrf }}
+<section class="panel"><div class="panel-head"><h2>Materials used</h2></div>
+{% for a in rows %}<div class="list-row"><span class="sw-dot{{ '' if a.hex else ' none' }}" {% if a.hex %}style="--c:{{ a.hex }}"{% endif %}></span>
+<div class="grow"><strong>{{ a.name }}</strong>{% if a.colour %} <span class="muted">{{ a.colour }}</span>{% endif %}
+<div class="muted small">{{ a.tname }}: reserved {{ '%g'|format(a.qty) }} {{ a.unit }}, {{ '%g'|format(a.have) }} in stock</div></div>
+<label class="used-amount"><input name="used_{{ a.id }}" type="number" step="any" min="0" value="{{ '%g'|format(a.qty) }}" aria-label="Amount of {{ a.name }} used" inputmode="decimal"><span class="small muted">{{ a.unit }}</span></label></div>
+{% else %}<p class="muted">Nothing is reserved for this project.</p>{% endfor %}
+</section>
+<div class="actions"><a class="btn secondary" href="{{ url_for('project', id=p.id) }}">Cancel</a><button class="btn" name="stock" value="use"><svg class="i"><use href="#i-check"/></svg>Deduct and complete</button></div>
+</form>
+{% endblock %}
