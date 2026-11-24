@@ -1,0 +1,15 @@
+# Cloudflare Tunnel (cloudflared): no open ports at all. Create the tunnel and its credentials file first:
+#   cloudflared tunnel login && cloudflared tunnel create craft-stash && cloudflared tunnel route dns craft-stash craft.example.com
+# then run cloudflared next to the app (same Docker network) with this config. On the app set TRUST_PROXY=1 and
+# TRUSTED_PROXIES to cloudflared's address or network. Cloudflare's free plan caps uploads at 100 MB, above the app's
+# limit; keep MAX_UPLOAD_MB below it.
+tunnel: craft-stash
+credentials-file: /etc/cloudflared/craft-stash.json
+
+ingress:
+  - hostname: craft.example.com
+    service: http://craft-stash:8000
+    originRequest:
+      connectTimeout: 10s
+      keepAliveTimeout: 120s
+  - service: http_status:404

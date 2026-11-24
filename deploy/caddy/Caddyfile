@@ -1,0 +1,24 @@
+# Caddy 2: automatic HTTPS. Set TRUST_PROXY=1 on the app (and TRUSTED_PROXIES to Caddy's address or network).
+craft.example.com {
+	request_body {
+		max_size 30MB
+	}
+	reverse_proxy craft-stash:8000 {
+		# Caddy sends X-Forwarded-For/-Proto/-Host itself.
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+		}
+	}
+}
+
+# Sub-path instead (set URL_PREFIX=/craft on the app). handle keeps the /craft prefix; handle_path would strip it.
+# Both work with URL_PREFIX.
+# example.com {
+# 	handle /craft/* {
+# 		request_body {
+# 			max_size 30MB
+# 		}
+# 		reverse_proxy craft-stash:8000
+# 	}
+# }

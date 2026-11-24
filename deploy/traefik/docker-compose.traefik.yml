@@ -1,0 +1,29 @@
+# Traefik v3, with Craft Stash on Traefik's Docker network. Use alongside the main compose file:
+#   docker compose -f docker-compose.yml -f deploy/traefik/docker-compose.traefik.yml up -d
+# Assumes Traefik already runs with an "websecure" entrypoint, a certificate resolver called "letsencrypt",
+# and a Docker network called "proxy" (PROXY_NETWORK). Change the host name below.
+services:
+  craft-stash:
+    ports: !reset []                          # Traefik is the way in; no host port
+    environment:
+      TRUST_PROXY: "1"
+      TRUSTED_PROXIES: "172.16.0.0/12"        # Docker's default address pool; narrow it to Traefik's network if you like
+      # URL_PREFIX: /craft                    # for https://example.com/craft/ (and use the PathPrefix rule below)
+    networks: [default, proxy]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${PROXY_NETWORK:-proxy}
+      traefik.http.routers.craft-stash.rule: Host(`craft.example.com`)
+      # traefik.http.routers.craft-stash.rule: Host(`example.com`) && PathPrefix(`/craft`)
+      traefik.http.routers.craft-stash.entrypoints: websecure
+      traefik.http.routers.craft-stash.tls.certresolver: letsencrypt
+      traefik.http.services.craft-stash.loadbalancer.server.port: "8000"
+      # Uploads up to 30 MB (Traefik has no limit by default; this makes one explicit)
+      traefik.http.middlewares.craft-stash-body.buffering.maxRequestBodyBytes: "31457280"
+      traefik.http.routers.craft-stash.middlewares: craft-stash-body
+      # Timeouts are set on Traefik's entrypoint (respondingTimeouts.readTimeout: 120s) in its static config.
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
