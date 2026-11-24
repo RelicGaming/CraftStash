@@ -737,7 +737,7 @@ def projects():
                 (SELECT COUNT(*) FROM files WHERE project_id=p.id) AS n_files
                 FROM projects p JOIN users u ON u.id=p.user_id
                 WHERE p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?)
-                ORDER BY p.user_id<>?, p.status='done', p.name""", me, me, me)
+                ORDER BY p.user_id<>?, p.status='template', p.status='done', p.name""", me, me, me)
     return render_template("projects.html", rows=rows)
 
 @app.post("/projects")
@@ -765,7 +765,7 @@ def project(id):
 def project_update(id):
     pr = project_of(id, True)
     status = request.form.get("status")
-    if pr["status"] == "done" or status not in ("planned", "active"): status = pr["status"]
+    if pr["status"] in ("done", "template") or status not in ("planned", "active"): status = pr["status"]
     run("UPDATE projects SET name=?, status=?, notes=? WHERE id=?",
         clean("name", 100) or pr["name"], status, clean("notes", 5000), id)
     return redirect(url_for("project", id=id))
@@ -781,7 +781,7 @@ def assign(id):
         short = n - max(it["free"], 0)       # more than is free is allowed: the gap lands on the shopping list
         run("""INSERT INTO assignments(project_id,item_id,qty) VALUES(?,?,?)
                ON CONFLICT(project_id,item_id) DO UPDATE SET qty=qty+excluded.qty""", id, it["id"], n)
-        if short > 1e-9: flash(f"That's {short:g} {it['unit']} more than you have free. It's on your shopping list.")
+        if short > 1e-9 and pr["status"] != "template": flash(f"That's {short:g} {it['unit']} more than you have free. It's on your shopping list.")
     return redirect(url_for("project", id=id))
 
 @app.post("/assignments/<int:aid>/delete")
@@ -793,7 +793,7 @@ def unassign(aid):
 @app.post("/projects/<int:id>/complete")
 def complete(id):
     pr = project_of(id, True)
-    if pr["status"] != "done":
+    if pr["status"] not in ("done", "template"):    # a template is never completed, only started from
         d = db()
         # reservations on collections the owner can no longer edit are stale: drop them instead of using that stock
         d.execute(f"""DELETE FROM assignments WHERE project_id=? AND consumed=0 AND item_id IN
@@ -827,12 +827,14 @@ def reopen(id):
 @app.post("/projects/<int:id>/copy")
 def copy_project(id):
     pr = project_of(id); mine = pr["user_id"] == uid(); d = db(); notes = pr["notes"]
+    to_template = request.form.get("as") == "template"    # "Save as template"; copying a template starts a project
+    name = pr["name"] + " (copy)" if mine and not to_template and pr["status"] != "template" else pr["name"]
     mats = q("SELECT a.qty, s.name, s.colour, s.unit FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=? ORDER BY s.name", id)
     if not mine and mats:    # the new owner can't use someone else's stock, so the materials become a written list
         lines = [f"- {a['qty']:g} {a['unit']} {a['name']}" + (f" ({a['colour']})" if a["colour"] else "") for a in mats]
         notes = (notes + "\n\n" if notes else "") + "Materials from the original:\n" + "\n".join(lines)
-    nid = d.execute("INSERT INTO projects(user_id,name,notes) VALUES(?,?,?)",
-                    (uid(), (pr["name"] + " (copy)" if mine else pr["name"])[:100], notes[:5000])).lastrowid
+    nid = d.execute("INSERT INTO projects(user_id,name,notes,status) VALUES(?,?,?,?)",
+                    (uid(), name[:100], notes[:5000], "template" if to_template else "planned")).lastrowid
     d.execute("INSERT INTO steps(project_id,pos,title,body) SELECT ?,pos,title,body FROM steps WHERE project_id=?", (nid, id))
     if mine: d.execute(f"""INSERT INTO assignments(project_id,item_id,qty) SELECT ?, a.item_id, a.qty FROM assignments a
                            JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND {CAN_EDIT}""", (nid, id, uid()))
@@ -852,6 +854,8 @@ def copy_project(id):
         raise
     if over: flash("Some files weren't copied because you're over your storage limit.")
     if missing: flash(f"{missing} file(s) were missing from storage and weren't copied.")
+    if to_template: flash("Saved as a template. Its materials are a list only: they don't hold any stock until you start a project from it.")
+    elif pr["status"] == "template": flash("Project started from the template. Its materials are now reserved.")
     return redirect(url_for("project", id=nid))
 
 @app.post("/projects/<int:id>/leave")
