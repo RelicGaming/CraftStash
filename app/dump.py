@@ -32,7 +32,7 @@ def check(data):
         if name not in dbx.TABLES: raise SystemExit(f"That export has a table Craft Stash doesn't use ({name}).")
         if not isinstance(t.get("columns"), list) or not isinstance(t.get("rows"), list): raise SystemExit("That export is damaged.")
         for col in t["columns"]:
-            if not isinstance(col, str) or not col.isidentifier(): raise SystemExit("That export is damaged.")
+            if not isinstance(col, str) or not dbx.IDENT.fullmatch(col) or "." in col: raise SystemExit("That export is damaged.")
 
 def load(c, data, replace=False):
     """Load a dump into an open connection, in one transaction. Without replace, the database must be empty."""
@@ -46,7 +46,7 @@ def load(c, data, replace=False):
         for t in dbx.TABLES:
             src = data["tables"].get(t)
             if not src or not src["rows"]: continue
-            target = set(_columns(c, t)); keep = [i for i, col in enumerate(src["columns"]) if col in target]
+            target = set(_columns(c, t)); keep = [i for i, col in enumerate(src["columns"]) if col in target]   # only real columns reach the SQL
             cols = [src["columns"][i] for i in keep]
             rows = [[r[i] for i in keep] for r in src["rows"]]
             c.executemany(f"INSERT INTO {t}({','.join(cols)}) VALUES({','.join('?' * len(cols))})", rows)
