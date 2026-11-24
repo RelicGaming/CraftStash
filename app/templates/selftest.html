@@ -6,40 +6,8 @@
 <a class="btn secondary" id="json" href="{{ url_for('selftest_report', format='json') }}" {% if not has_report %}hidden{% endif %}>Download JSON</a>
 <form method="post" action="{{ url_for('selftest_run') }}">{{ csrf }}<button class="btn" id="run">Run self-test</button></form></div></div>
 <p class="muted" style="margin-top:-8px">Starts a temporary copy of the app with its own empty database, signs up test users and drives every feature through the website, then times the main pages. It takes under a minute and uses a little extra memory while it runs. Your real data is never touched.</p>
-<section class="panel" id="status-panel" hidden><div class="panel-head" style="margin-bottom:8px"><h2 id="headline">Running…</h2><span class="muted small" id="counter"></span></div>
+<section class="panel" id="status-panel" data-status="{{ url_for('selftest_status') }}" hidden><div class="panel-head" style="margin-bottom:8px"><h2 id="headline">Running…</h2><span class="muted small" id="counter"></span></div>
 <progress id="bar" value="0" max="1" style="width:100%"></progress><div class="tile-meta" id="summary" style="margin-top:12px"></div></section>
 <section class="panel" id="features-panel" hidden><div class="panel-head"><h2>Features</h2></div><div class="scroll"><table><thead><tr><th>Result<th>Area<th>Check<th>Time<th>Requests<th>Slowest request</tr></thead><tbody id="rows"></tbody></table></div></section>
 <section class="panel" id="perf-panel" hidden><div class="panel-head"><h2>Page load times</h2><span class="muted small">server response, cold first load then median</span></div><div class="scroll"><table><thead><tr><th>Page<th>Cold<th>Median<th>95th<th>First byte<th>Size</tr></thead><tbody id="perf"></tbody></table></div></section>
-<script>
-(() => {
-  const $ = id => document.getElementById(id); let since = 0, total = 0, seen = 0, failed = 0;
-  const ms = v => v >= 10 ? Math.round(v).toLocaleString() + ' ms' : v.toFixed(1) + ' ms';
-  function cell(tr, text, cls) { const td = document.createElement('td'); td.textContent = text; if (cls) td.className = cls; tr.appendChild(td); return td; }
-  function pill(text, cls) { const s = document.createElement('span'); s.className = 'pill ' + cls; s.textContent = text; $('summary').appendChild(s); }
-  function render(e) {
-    if (e.event === 'start') { total = e.total; $('bar').max = total + 1; $('status-panel').hidden = false; $('features-panel').hidden = false; }
-    else if (e.event === 'check') {
-      seen++; if (e.status !== 'pass') failed++; $('bar').value = seen; $('counter').textContent = seen + ' of ' + total + ' checks';
-      const tr = document.createElement('tr'); cell(tr, e.status === 'pass' ? 'PASS' : e.status === 'fail' ? 'FAIL' : 'ERROR', 'pill ' + (e.status === 'pass' ? 'ok' : 'bad'));
-      cell(tr, e.category); const td = cell(tr, e.name); if (e.error) { const d = document.createElement('div'); d.className = 'small'; d.style.color = 'var(--danger)'; d.textContent = e.error; td.appendChild(d); }
-      cell(tr, ms(e.ms)); cell(tr, String(e.requests)); cell(tr, e.slowest ? e.slowest.method + ' ' + e.slowest.path + ' ' + ms(e.slowest.total) : ''); $('rows').appendChild(tr);
-    } else if (e.event === 'perf') {
-      $('perf-panel').hidden = false; $('bar').value = total; const tr = document.createElement('tr'); cell(tr, e.page); cell(tr, ms(e.cold)); cell(tr, ms(e.median) + (e.slow ? ' (slow)' : ''), e.slow ? 'pill warn' : '');
-      cell(tr, ms(e.p95)); cell(tr, ms(e.ttfb)); cell(tr, e.kb.toFixed(1) + ' KB'); $('perf').appendChild(tr);
-    } else if (e.event === 'done') {
-      const s = e.summary; $('bar').value = $('bar').max; $('headline').textContent = s.failed ? s.failed + ' of ' + s.total + ' checks need attention' : 'All ' + s.total + ' checks passed';
-      $('summary').textContent = ''; pill(s.passed + ' passed', 'ok'); if (s.failed) pill(s.failed + ' failed', 'bad'); pill(s.duration_s + ' s total', ''); pill('median page ' + ms(s.median_load), ''); pill('slowest ' + ms(s.slowest_load), '');
-      $('report').hidden = false; $('json').hidden = false;
-    } else if (e.event === 'log') { $('status-panel').hidden = false; $('headline').textContent = e.text; }
-  }
-  async function poll() {
-    try {
-      const r = await fetch('{{ url_for("selftest_status") }}?since=' + since, {credentials: 'same-origin'}); const d = await r.json(); since += d.events.length; d.events.forEach(render);
-      $('run').disabled = d.state === 'running';
-      if (d.state === 'running') setTimeout(poll, 700); else if (d.state === 'error') $('headline').textContent = $('headline').textContent || 'The self-test could not run';
-    } catch (err) { setTimeout(poll, 2000); }
-  }
-  poll();
-})();
-</script>
 {% endblock %}

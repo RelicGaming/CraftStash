@@ -7,6 +7,12 @@ Self-hosted craft supplies inventory. Flask + SQLite in one container.
 
 The first account to register becomes the admin. Admins manage users from the **Users** page.
 
+> **Register straight away.** Until the first account exists, anyone who can reach the app can claim admin. If it is reachable from outside before you get to it, set `ALLOW_SIGNUP=0` first and create the admin from the command line instead:
+>
+>     docker exec -it craft-stash python manage.py create-user --admin <username>    # asks for the password
+>
+> Then open sign-up from the **Users** page if you want it.
+
 ## Features
 - **Collections** (one per craft) hold **material types** (own unit and custom text/number/dropdown fields) which hold **items** (colour swatch, optional photo, variant, stock, price, location, low-stock level).
 - Search a collection for any text or one field (`Width:150`), sort, export or **import CSV** (with a check-only mode), see the **activity** history and undo stock changes.
@@ -17,9 +23,9 @@ The first account to register becomes the admin. Admins manage users from the **
 - Daily database snapshots and a one-click full backup (admin).
 
 ## Behind Nginx Proxy Manager
-The defaults already assume a proxy (`TRUST_PROXY=1`, `COOKIE_SECURE=auto`).
+Set `TRUST_PROXY=1` so the app reads the visitor's real address and HTTPS status from NPM. Only do this when NPM is the **only** way to reach the app: with `TRUST_PROXY=1` anyone who can reach port 8080 directly can fake their address (and dodge the login limiter).
 
-1. **Network.** Best: put both containers on one Docker network. Create it once (`docker network create proxy`), attach NPM to it, then in `docker-compose.yml` uncomment the `networks` lines and delete the `ports:` block. NPM then forwards to `craft-stash:8000` and nothing is exposed on the host. Otherwise keep the `ports:` block and forward to `<host-ip>:8080` (firewall that port from the internet).
+1. **Network.** Best: put both containers on one Docker network. Create it once (`docker network create proxy`), attach NPM to it, then in `docker-compose.yml` uncomment the `networks` lines and delete the `ports:` block. NPM then forwards to `craft-stash:8000` and nothing is exposed on the host. Otherwise keep the `ports:` block and forward to `<host-ip>:8080`, and firewall that port so only NPM can reach it.
 2. **Proxy host in NPM:** Scheme `http`, forward host/port as above, tick **Block Common Exploits**. On the SSL tab request a certificate and tick **Force SSL** and **HSTS**.
 3. **Advanced tab**, paste this so uploads and backups work (NPM's default limit is 1 MB):
 
@@ -35,14 +41,14 @@ The defaults already assume a proxy (`TRUST_PROXY=1`, `COOKIE_SECURE=auto`).
 | `PORT` | 8080 | Host port, if you publish one |
 | `PUID` / `PGID` | 10001 | Who owns the files in `/data`. Unraid: `99` / `100`. Needed when `/data` is a host folder |
 | `TZ` | UTC | Time zone for the activity log |
-| `TRUST_PROXY` | 1 | Proxies in front. `0` if you expose the app directly |
+| `TRUST_PROXY` | 0 | Proxies in front. `1` behind Nginx Proxy Manager, only if the app can't be reached any other way |
 | `COOKIE_SECURE` | auto | `auto`, `1` (always) or `0` (never) |
-| `ALLOW_SIGNUP` | 1 | Starting default for open sign-up; the Users page overrides it |
+| `ALLOW_SIGNUP` | 1 | Starting default for open sign-up; the Users page overrides it. `0` also closes the first-admin sign-up (see Quick start) |
 | `MAX_UPLOAD_MB` | 25 | Largest single upload |
 | `USER_QUOTA_MB` | 500 | Guide/pattern storage per user, 0 = unlimited |
 | `BACKUP_KEEP` | 7 | Daily database snapshots to keep, 0 = off |
 | `SECRET_KEY` | auto | Session signing key; generated into the volume if empty |
-| `IMAGE` | craft-stash:latest | Set to `ghcr.io/<you>/craftstash:latest` to pull the CI image |
+| `IMAGE` | craft-stash:latest | Set to `ghcr.io/<you>/craftstash:latest` to pull the CI image. Every build is also tagged `:sha-<commit>`, so you can pin or roll back to one |
 
 ## Backups and recovery
 - **What is saved:** `/data` holds `craft.db`, `uploads/` (guides and photos) and `backups/` (daily snapshots and safety copies made before upgrades and restores). Back up the whole volume (on Unraid, include the appdata folder).
@@ -57,7 +63,8 @@ The defaults already assume a proxy (`TRUST_PROXY=1`, `COOKIE_SECURE=auto`).
   A daily snapshot (`/data/backups/auto-*.db`) restores the same way but only brings back the database.
 - **Locked out?** Reset any password from the command line:
 
-      docker exec -it craft-stash python manage.py reset-password <username>
+      docker exec -it craft-stash python manage.py reset-password <username>    # asks for the new password
+      docker exec -it craft-stash python manage.py create-user [--admin] <username>
       docker exec -it craft-stash python manage.py list-users
       docker exec -it craft-stash python manage.py make-admin <username>
 - **Housekeeping:** `python manage.py cleanup --dry-run` lists uploaded files nothing refers to.

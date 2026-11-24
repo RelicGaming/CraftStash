@@ -10,7 +10,7 @@ services:
       PUID: "${PUID:-10001}"                  # Unraid: 99   (owner of the files in /data)
       PGID: "${PGID:-10001}"                  # Unraid: 100
       TZ: "${TZ:-UTC}"                        # e.g. Australia/Brisbane, used for times in the activity log
-      TRUST_PROXY: "${TRUST_PROXY:-1}"        # number of proxies in front (Nginx Proxy Manager = 1)
+      TRUST_PROXY: "${TRUST_PROXY:-0}"        # proxies in front: 1 behind Nginx Proxy Manager, 0 if the port is reachable directly
       COOKIE_SECURE: "${COOKIE_SECURE:-auto}" # auto = secure cookies whenever the request came in over HTTPS
       ALLOW_SIGNUP: "${ALLOW_SIGNUP:-1}"      # only the starting default; the Users page can override it
       MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
