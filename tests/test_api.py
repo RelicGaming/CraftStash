@@ -2,7 +2,7 @@
 import re, sqlite3
 from conftest import seed
 
-def db(env): return sqlite3.connect(env.data / "craft.db")
+def db(env): return env.db()
 
 def make_token(c, access="read", name="Home Assistant"):
     html = c.post("/account/tokens", {"name": name, "access": access}).get_data(as_text=True)

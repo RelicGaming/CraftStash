@@ -2,8 +2,8 @@
 import sqlite3
 from conftest import seed
 
-def qty(env, iid): return sqlite3.connect(env.data / "craft.db").execute("SELECT qty FROM items WHERE id=?", (iid,)).fetchone()[0]
-def used(env): return dict(sqlite3.connect(env.data / "craft.db").execute("SELECT item_id, used FROM assignments WHERE project_id=1"))
+def qty(env, iid): return env.db().execute("SELECT qty FROM items WHERE id=?", (iid,)).fetchone()[0]
+def used(env): return dict(env.db().execute("SELECT item_id, used FROM assignments WHERE project_id=1"))
 
 def setup(amy):
     seed(amy); amy.post("/projects/1/assign", {"item_id": "1", "qty": "3"}); amy.post("/projects/1/assign", {"item_id": "2", "qty": "1"})

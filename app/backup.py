@@ -2,7 +2,7 @@
 import os, shutil, sqlite3, sys, threading, time, traceback, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-import paths
+import dbx, paths
 try: import fcntl
 except ImportError: fcntl = None      # Windows dev box: no "is the app running?" check
 
@@ -16,6 +16,18 @@ def stamp(): return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 def snapshot_db(src, dst):
     s = sqlite3.connect(src); d = sqlite3.connect(dst); s.backup(d); d.close(); s.close()
+
+def external(): return bool(dbx.CFG and dbx.CFG.external)
+
+def snapshot(P, dst_stem):
+    """A copy of the database at dst_stem + .db (SQLite) or .json (a portable dump of an external database)."""
+    if external():
+        import dump
+        c = dbx.connect(); dst = Path(f"{dst_stem}.json"); tmp = dst.with_name(".snapshot-" + dst.name)
+        try: dump.write(c, tmp); os.replace(tmp, dst)
+        finally: c.close(); tmp.unlink(missing_ok=True)
+        return dst
+    dst = Path(f"{dst_stem}.db"); snapshot_db(P.db, dst); return dst
 
 def prune(folder, pattern, keep):
     for old in sorted(Path(folder).glob(pattern))[:-keep or None]: old.unlink(missing_ok=True)
@@ -49,11 +61,12 @@ def _upload_files(P):
     yield from walk(P.photos, "uploads/photos/", [P.tmp, P.backups, P.selftest])
 
 def make_zip(where, zip_path):
-    P = paths.resolve(where); P.tmp.mkdir(parents=True, exist_ok=True); tmp = P.tmp / f".snapshot-{time.time_ns()}.db"
-    snapshot_db(P.db, tmp)
+    """The database (craft.db, or craft-dump.json for an external database) and every uploaded file and photo."""
+    P = paths.resolve(where); P.tmp.mkdir(parents=True, exist_ok=True)
+    tmp = snapshot(P, P.tmp / f".snapshot-{time.time_ns()}")
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-            z.write(tmp, "craft.db")
+            z.write(tmp, "craft-dump.json" if tmp.suffix == ".json" else "craft.db")
             for p, name in _upload_files(P):
                 packed = p.suffix.lstrip(".").lower() in PACKED
                 z.write(p, name, compress_type=zipfile.ZIP_STORED if packed else zipfile.ZIP_DEFLATED)
@@ -67,10 +80,10 @@ def start_snapshots(where, keep):
         while True:
             try:
                 folder = P.backups; folder.mkdir(parents=True, exist_ok=True)
-                newest = max((f.stat().st_mtime for f in folder.glob("auto-*.db")), default=0)
+                newest = max((f.stat().st_mtime for f in folder.glob("auto-*")), default=0)
                 if time.time() - newest > 86400:
-                    snapshot_db(P.db, folder / f"auto-{stamp()}.db")
-                    prune(folder, "auto-*.db", keep)
+                    made = snapshot(P, folder / f"auto-{stamp()}")
+                    prune(folder, "auto-*" + made.suffix, keep)
             except Exception:    # keep trying hourly, but say why in `docker logs`
                 print(f"[snapshots] daily snapshot failed:\n{traceback.format_exc()}", file=sys.stderr, flush=True)
             time.sleep(3600)
@@ -111,36 +124,48 @@ def _restore_uploads(P, staged):
     shutil.copytree(staged, P.uploads, dirs_exist_ok=True)
 
 def restore(where, src, force=False):
-    """Replace the database (and uploads, for a full zip) from a backup. Stop the app first."""
+    """Replace the database (and uploads, for a full zip) from a backup. Stop the app first.
+    Takes a full-backup zip, a SQLite snapshot (.db) or a portable export (.json), from any database engine."""
+    import dump
     P, src = paths.resolve(where), Path(src)
     if not src.exists(): raise SystemExit(f"No such file: {src}")
     lock = _exclusive(P.data, force)
     try:
         P.backups.mkdir(parents=True, exist_ok=True); P.tmp.mkdir(parents=True, exist_ok=True)
-        if P.db.exists():
-            snapshot_db(P.db, P.backups / f"pre-restore-{stamp()}.db")
-            prune(P.backups, "pre-restore-*.db", KEEP_SAFETY)
         stage = P.tmp / f".restore-{stamp()}"; stage.mkdir()
         try:
-            uploads = None
+            uploads, newdb, data = None, None, None
             if zipfile.is_zipfile(src):
                 with zipfile.ZipFile(src) as z:
-                    if "craft.db" not in z.namelist(): raise SystemExit("Not a Craft Stash backup: craft.db is missing from the zip.")
+                    names = z.namelist()
+                    if "craft.db" not in names and "craft-dump.json" not in names:
+                        raise SystemExit("Not a Craft Stash backup: craft.db is missing from the zip.")
                     def extract(name, target):      # streamed, so a big file never has to fit in memory
                         with z.open(name) as i, open(target, "wb") as o: shutil.copyfileobj(i, o, 1 << 20)
-                    extract("craft.db", stage / "craft.db")
+                    if "craft.db" in names: extract("craft.db", stage / "craft.db"); newdb = stage / "craft.db"
+                    else: extract("craft-dump.json", stage / "craft-dump.json"); data = dump.read_any(stage / "craft-dump.json")
                     uploads = stage / "uploads"; uploads.mkdir()
-                    for n in z.namelist():
+                    for n in names:
                         if n.startswith("uploads/") and not n.endswith("/"):
                             target = (stage / n).resolve()
                             if not str(target).startswith(str(uploads.resolve()) + os.sep): continue   # zip-slip guard
                             target.parent.mkdir(parents=True, exist_ok=True); extract(n, target)
-                newdb = stage / "craft.db"
+            elif open(src, "rb").read(16).startswith(b"SQLite format 3"): newdb = src
+            else: data = dump.read_any(src)
+            if newdb is not None:
+                _check_db(newdb)
+                if external(): data = dump.from_sqlite(newdb)
+            # A copy of what is there now, in case the restore was a mistake.
+            if external() or P.db.exists():
+                snapshot(P, P.backups / f"pre-restore-{stamp()}")
+                for ext in (".db", ".json"): prune(P.backups, f"pre-restore-*{ext}", KEEP_SAFETY)
+            if data is not None:
+                c = dbx.connect()
+                try: dump.load(c, data, replace=True)
+                finally: c.close()
             else:
-                newdb = src
-            _check_db(newdb)
-            for ext in ("-wal", "-shm"): (P.data / f"craft.db{ext}").unlink(missing_ok=True)
-            shutil.copyfile(newdb, P.db)
+                for ext in ("-wal", "-shm"): (P.data / f"craft.db{ext}").unlink(missing_ok=True)
+                shutil.copyfile(newdb, P.db)
             if uploads is not None: _restore_uploads(P, uploads)
         finally: shutil.rmtree(stage, ignore_errors=True)
     finally:

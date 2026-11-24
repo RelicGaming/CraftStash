@@ -9,6 +9,21 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+    services:
+      postgres:                 # used by the postgres leg; the whole suite runs against it (wiped before each test)
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: cstest
+          POSTGRES_DB: craftstash
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      TEST_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql://postgres:cstest@localhost:5432/craftstash' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -19,8 +34,9 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: pytest -q
       - run: python app/selftest.py --out selftest-report
+        if: matrix.db == 'sqlite'
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && matrix.db == 'sqlite'
         with:
           name: selftest-report
           path: selftest-report/

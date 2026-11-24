@@ -4,20 +4,20 @@ from types import SimpleNamespace
 import pytest
 from conftest import seed, png_bytes
 
-def qty(env, iid=1): return sqlite3.connect(env.data / "craft.db").execute("SELECT qty FROM items WHERE id=?", (iid,)).fetchone()[0]
+def qty(env, iid=1): return env.db().execute("SELECT qty FROM items WHERE id=?", (iid,)).fetchone()[0]
 
 # ---------- sharing: view-only users can't move stock ----------
 def test_downgrade_to_view_only_drops_reservations(env, amy, bob):
     seed(amy); amy.post("/collections/1/share", {"username": "bob", "role": "edit"})
     bob.post("/projects", {"name": "Scarf"}); bob.post("/projects/2/assign", {"item_id": "1", "qty": "3"})
     amy.post("/collections/1/share", {"username": "bob", "role": "view"})
-    assert sqlite3.connect(env.data / "craft.db").execute("SELECT COUNT(*) FROM assignments WHERE project_id=2").fetchone()[0] == 0
+    assert env.db().execute("SELECT COUNT(*) FROM assignments WHERE project_id=2").fetchone()[0] == 0
     bob.post("/projects/2/complete"); assert qty(env) == 5
 
 def test_complete_ignores_stale_reservations(env, amy, bob):
     seed(amy); amy.post("/collections/1/share", {"username": "bob", "role": "edit"})
     bob.post("/projects", {"name": "Scarf"}); bob.post("/projects/2/assign", {"item_id": "1", "qty": "3"})
-    d = sqlite3.connect(env.data / "craft.db"); d.execute("UPDATE pool_shares SET can_edit=0"); d.commit()   # e.g. from an older version
+    d = env.db(); d.execute("UPDATE pool_shares SET can_edit=0"); d.commit()   # e.g. from an older version
     bob.post("/projects/2/complete"); assert qty(env) == 5
 
 def test_reopen_leaves_stock_alone_once_access_is_gone(env, amy, bob):
@@ -31,9 +31,9 @@ def test_reopen_leaves_stock_alone_once_access_is_gone(env, amy, bob):
 def test_copying_your_project_skips_reservations_you_cannot_make(env, amy, bob):
     seed(amy); amy.post("/collections/1/share", {"username": "bob", "role": "edit"})
     bob.post("/projects", {"name": "Scarf"}); bob.post("/projects/2/assign", {"item_id": "1", "qty": "3"})
-    d = sqlite3.connect(env.data / "craft.db"); d.execute("UPDATE pool_shares SET can_edit=0"); d.commit()
+    d = env.db(); d.execute("UPDATE pool_shares SET can_edit=0"); d.commit()
     bob.post("/projects/2/copy")
-    assert sqlite3.connect(env.data / "craft.db").execute("SELECT COUNT(*) FROM assignments WHERE project_id=3").fetchone()[0] == 0
+    assert env.db().execute("SELECT COUNT(*) FROM assignments WHERE project_id=3").fetchone()[0] == 0
 
 def test_copy_survives_a_missing_upload(env, amy):
     seed(amy); amy.post("/projects/1/upload", {"file": (io.BytesIO(b"%PDF-1.4"), "a.pdf")})
@@ -86,7 +86,7 @@ def test_import_explains_ambiguous_numbers_and_cleans_number_fields(env, amy):
     csv = "Material type,Name,In stock,Weight\nYarn,Alpaca,\"1,500\",\nYarn,Silk,2,\"1.250,5\"\nYarn,Wool,1,heavy\n"
     page = amy.post("/collections/1/import", {"file": (io.BytesIO(csv.encode()), "a.csv"), "mode": "add"}).get_data(as_text=True)
     assert "ambiguous" in page and "Weight" in page
-    d = sqlite3.connect(env.data / "craft.db"); fid = [f["id"] for f in json.loads(d.execute("SELECT fields FROM types WHERE id=1").fetchone()[0]) if f["label"] == "Weight"][0]
+    d = env.db(); fid = [f["id"] for f in json.loads(d.execute("SELECT fields FROM types WHERE id=1").fetchone()[0]) if f["label"] == "Weight"][0]
     assert json.loads(d.execute("SELECT extra FROM items WHERE name='Silk'").fetchone()[0])[fid] == "1250.5"
     assert not d.execute("SELECT 1 FROM items WHERE name IN ('Alpaca','Wool')").fetchone()
 
@@ -116,7 +116,7 @@ def test_backup_stores_compressed_files_as_they_are(env, amy):
     amy.post("/projects/1/upload", {"file": (io.BytesIO(b"plain text " * 500), "notes.txt")})
     z = zipfile.ZipFile(io.BytesIO(amy.post("/admin/backup").data))
     kinds = {i.filename.rsplit(".", 1)[-1]: i.compress_type for i in z.infolist()}
-    assert kinds["jpg"] == zipfile.ZIP_STORED and kinds["txt"] == zipfile.ZIP_DEFLATED and kinds["db"] == zipfile.ZIP_DEFLATED
+    assert kinds["jpg"] == zipfile.ZIP_STORED and kinds["txt"] == zipfile.ZIP_DEFLATED and kinds.get("db", kinds.get("json")) == zipfile.ZIP_DEFLATED
     assert not list(env.data.glob(".download-*"))                     # temp zip is removed after sending
 
 def test_old_temp_files_are_cleaned_up(env):
@@ -125,10 +125,11 @@ def test_old_temp_files_are_cleaned_up(env):
     backup.clean_leftovers(env.data); assert not old.exists()
 
 # ---------- migrations ----------
+@pytest.mark.sqlite_only
 def test_a_failing_migration_changes_nothing(env, monkeypatch):
     import migrations
     from pathlib import Path
-    schema = (Path(migrations.__file__).parent / "schema.sql").read_text()
+    schema = migrations.schema_file("sqlite")
     db = env.data / "craft.db"; before = sqlite3.connect(db).execute("PRAGMA user_version").fetchone()[0]
     def boom(c): c.execute("ALTER TABLE items ADD COLUMN half_done TEXT"); raise RuntimeError("boom")
     monkeypatch.setattr(migrations, "STEPS", migrations.STEPS + [boom])
@@ -137,6 +138,7 @@ def test_a_failing_migration_changes_nothing(env, monkeypatch):
     assert c.execute("PRAGMA user_version").fetchone()[0] == before
     assert "half_done" not in [r[1] for r in c.execute("PRAGMA table_info(items)")]
 
+@pytest.mark.sqlite_only
 def test_upgrade_drops_existing_stale_reservations(make_env, tmp_path):
     e = make_env(); a = e.client().register("amy"); b = e.client().register("bob"); seed(a)
     a.post("/collections/1/share", {"username": "bob", "role": "edit"})
@@ -146,8 +148,8 @@ def test_upgrade_drops_existing_stale_reservations(make_env, tmp_path):
     assert sqlite3.connect(tmp_path / "craft.db").execute("SELECT COUNT(*) FROM assignments WHERE project_id=2").fetchone()[0] == 0
 
 def test_old_activity_is_pruned_without_a_restart(env, amy):
-    seed(amy); d = sqlite3.connect(env.data / "craft.db")
-    d.execute("INSERT INTO activity(ts,user_id,pool_id,kind,text) VALUES(datetime('now','-400 day'),1,1,'edit','ancient')"); d.commit()
+    seed(amy); d = env.db()
+    import dbx; d.execute("INSERT INTO activity(ts,user_id,pool_id,kind,text) VALUES(?,1,1,'edit','ancient')", (dbx.ago(400),)); d.commit()
     env.mod._pruned["at"] = 0; amy.get("/")
     assert not d.execute("SELECT 1 FROM activity WHERE text='ancient'").fetchone()
 

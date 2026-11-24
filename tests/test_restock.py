@@ -2,7 +2,7 @@
 import sqlite3
 from conftest import seed
 
-def qtys(env): return dict(sqlite3.connect(env.data / "craft.db").execute("SELECT id, qty FROM items"))
+def qtys(env): return dict(env.db().execute("SELECT id, qty FROM items"))
 
 def test_shopping_list_suggests_amounts(env, amy):
     seed(amy)                                                 # Merino 5 (low at 2), Cotton 1
@@ -15,7 +15,7 @@ def test_bulk_restock_adds_each_amount_and_logs_it(env, amy):
     seed(amy); amy.post("/items/1/adjust", {"action": "use", "amount": "4"})
     page = amy.post("/shopping/restock", {"bought_1": "6", "bought_2": "", "bought_x": "3", "other": "1"}, follow_redirects=True).get_data(as_text=True)
     assert qtys(env) == {1: 7, 2: 1} and "Restocked 1 item." in page
-    assert sqlite3.connect(env.data / "craft.db").execute("SELECT delta FROM activity WHERE item_id=1 ORDER BY id DESC").fetchone()[0] == 6
+    assert env.db().execute("SELECT delta FROM activity WHERE item_id=1 ORDER BY id DESC").fetchone()[0] == 6
     amy.post("/shopping/restock", {"bought_1": "1", "bought_2": "2.5"}); assert qtys(env) == {1: 8, 2: 3.5}
 
 def test_bulk_restock_ignores_bad_amounts(env, amy):

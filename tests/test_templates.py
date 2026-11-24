@@ -2,7 +2,7 @@
 import sqlite3
 from conftest import seed
 
-def db(env): return sqlite3.connect(env.data / "craft.db")
+def db(env): return env.db()
 def free(env, iid): return db(env).execute("SELECT free FROM stock WHERE id=?", (iid,)).fetchone()[0]
 
 def make_template(amy):

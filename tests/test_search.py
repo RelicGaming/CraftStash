@@ -11,7 +11,7 @@ def test_search_finds_items_in_every_collection(env, amy):
 
 def test_search_covers_location_fields_and_keyed_terms(env, amy):
     seed(amy)
-    fid = json.loads(sqlite3.connect(env.data / "craft.db").execute("SELECT fields FROM types WHERE id=1").fetchone()[0])[0]["id"]
+    fid = json.loads(env.db().execute("SELECT fields FROM types WHERE id=1").fetchone()[0])[0]["id"]
     amy.post("/items/1/edit", {"name": "Merino", "colour": "Rose", "qty": "5", "location": "Drawer 3", "x_" + fid: "Drops"})
     assert "Merino" in amy.html("/search?q=drawer 3")
     html = amy.html("/search?q=Brand:drops"); assert "Merino" in html and "Cotton" not in html

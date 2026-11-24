@@ -1,4 +1,4 @@
-import csv, hashlib, io, json, math, os, re, secrets, shutil, sqlite3, subprocess, sys, tempfile, threading, time, uuid
+import csv, hashlib, io, json, math, os, re, secrets, shutil, subprocess, sys, tempfile, threading, time, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -11,7 +11,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-import backup, importer, migrations, paths, themes
+import backup, dbx, importer, migrations, paths, themes
 
 P = paths.Paths(); P.check()        # every folder can be mapped on its own; refuses to start if one is missing or read-only
 DATA, UPLOADS, PHOTOS = P.data, P.uploads, P.photos
@@ -48,10 +48,7 @@ app.session_interface = _Session()
 
 # ---------- db helpers ----------
 def db():
-    if "db" not in g:
-        g.db = sqlite3.connect(DATA / "craft.db")
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys=ON")
+    if "db" not in g: g.db = dbx.connect()      # SQLite by default, or the external database in DATABASE_URL
     return g.db
 
 @app.teardown_appcontext
@@ -66,10 +63,10 @@ def run(sql, *a):
 def uid(): return g.user["id"]
 
 backup.hold_app_lock(DATA)          # first, so `manage.py restore` refuses to run under a live app
-migrations.run(P.db, (Path(__file__).parent / "schema.sql").read_text(), P.backups)
+DB = migrations.prepare(P)          # configure the database from the environment (waits for a server) and upgrade it
 backup.clean_leftovers(P)
 backup.start_snapshots(P, int(os.environ.get("BACKUP_KEEP", "7") or 0))
-P.log_summary()
+P.log_summary(); print(f"[db] {DB.describe()}", file=sys.stderr, flush=True)
 
 _pruned = {"at": 0.0}
 def prune_daily():                  # old activity goes once a day, not just when the container restarts
@@ -82,7 +79,8 @@ def num(v, default=0.0):
     except (TypeError, ValueError): return default
     return x if math.isfinite(x) and x >= 0 else default
 
-LIKE = "LIKE ? ESCAPE '!'"
+GROUP_HEX = dbx.group_concat_distinct("s.hex")   # the colour swatches on collection and project cards
+LIKE = dbx.like_op()                # case-insensitive LIKE with ! as the escape, on every database
 def like(term): return "%" + re.sub(r"[!%_]", lambda m: "!" + m[0], term) + "%"   # so "50%" or "a_b" match literally
 
 def clean(name, n=120): return (request.form.get(name) or "").strip()[:n]
@@ -286,7 +284,7 @@ def register():
         if valid_account(name, pw):
             h = generate_password_hash(pw)
             try: c = run("INSERT INTO users(username,pw,is_admin) VALUES(?,?,?)", name, h, int(first))
-            except sqlite3.IntegrityError: flash("That username is taken.")
+            except dbx.IntegrityError: flash("That username is taken.")
             else:
                 session.clear(); session["uid"] = c.lastrowid; session["pwv"] = pwv(h); session.permanent = True
                 return redirect(url_for("home"))
@@ -307,7 +305,7 @@ def admin():
                  (SELECT COUNT(*) FROM projects WHERE user_id=u.id) AS projects,
                  (SELECT COALESCE(SUM(f.size),0) FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=u.id) AS bytes
                  FROM users u ORDER BY username""")
-    snaps = sorted(P.backups.glob("auto-*.db")) if P.backups.exists() else []
+    snaps = sorted(P.backups.glob("auto-*")) if P.backups.exists() else []
     last = datetime.fromtimestamp(snaps[-1].stat().st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if snaps else None
     return render_template("admin.html", users=users, signups=signups_open(), quota=QUOTA, cur=currency(), snaps=len(snaps), last_snap=local_time(last) if last else None,
                            storage=P.report())
@@ -318,7 +316,7 @@ def admin_create():
     name, pw = clean("username", 40), request.form.get("password", "")
     if valid_account(name, pw):
         try: run("INSERT INTO users(username,pw,is_admin) VALUES(?,?,?)", name, generate_password_hash(pw), int(bool(request.form.get("is_admin"))))
-        except sqlite3.IntegrityError: flash("That username is taken.")
+        except dbx.IntegrityError: flash("That username is taken.")
     return redirect(url_for("admin"))
 
 @app.post("/admin/users/<int:id>/password")
@@ -354,17 +352,18 @@ def admin_delete(id):
         purge_files("p.user_id=?", id); purge_photos("p.user_id=?", id); purge_step_photos("p.user_id=?", id); run("DELETE FROM users WHERE id=?", id)
     return redirect(url_for("admin"))
 
+SET_SETTING = dbx.upsert("settings", ["key", "value"], ["key"], {"value": "excluded.value"})
+
 @app.post("/admin/signups")
 def admin_signups():
     admin_only()
-    run("INSERT INTO settings(key,value) VALUES('signups',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        "0" if signups_open() else "1")
+    run(SET_SETTING, "signups", "0" if signups_open() else "1")
     return redirect(url_for("admin"))
 
 @app.post("/admin/currency")
 def admin_currency():
     admin_only(); sym = "".join(ch for ch in clean("currency", 4) if ch.isprintable()) or "$"
-    run("INSERT INTO settings(key,value) VALUES('currency',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", sym)
+    run(SET_SETTING, "currency", sym)
     return redirect(url_for("admin"))
 
 @app.post("/admin/backup")
@@ -428,9 +427,9 @@ def selftest_report():
 # ---------- pools ----------
 @app.get("/")
 def home():
-    pools = q("""SELECT p.*, a.is_owner, a.can_edit, u.username AS owner,
+    pools = q(f"""SELECT p.*, a.is_owner, a.can_edit, u.username AS owner,
                         (SELECT COUNT(*) FROM stock s WHERE s.pool_id=p.id) AS n,
-                        (SELECT group_concat(DISTINCT s.hex) FROM stock s WHERE s.pool_id=p.id AND s.hex<>'') AS hexes
+                        (SELECT {GROUP_HEX} FROM stock s WHERE s.pool_id=p.id AND s.hex<>'') AS hexes
                  FROM pools p JOIN access a ON a.pool_id=p.id JOIN users u ON u.id=p.user_id
                  WHERE a.user_id=? ORDER BY a.is_owner DESC, p.name""", uid())
     return render_template("home.html", pools=pools)
@@ -488,10 +487,10 @@ def match(term, fields):
     if m and key in {l.lower() for l in labels}:   # "Width:150" filters that field
         ids = [f["id"] for fl in fields.values() for f in fl if f["label"].lower() == key]   # ids are unique per field
         args = []
-        for i in ids: args += [f'$."{i}"', like(m[2].strip())]
-        return "(" + " OR ".join([f"json_extract(stock.extra, ?) {LIKE}"] * len(ids)) + ")", args, key
+        for i in ids: args += [dbx.json_key(i), like(m[2].strip())]
+        return "(" + " OR ".join([f"{dbx.json_get('stock.extra')} {LIKE}"] * len(ids)) + ")", args, key
     return (f"""(stock.name {LIKE} OR stock.colour {LIKE} OR stock.subtype {LIKE} OR stock.notes {LIKE} OR stock.location {LIKE}
-                OR EXISTS(SELECT 1 FROM json_each(stock.extra) WHERE value {LIKE})
+                OR {dbx.json_has("stock.extra", LIKE)}
                 OR EXISTS(SELECT 1 FROM item_places ip WHERE ip.item_id=stock.id AND ip.place {LIKE}))""", [like(term)] * 7, "")
 
 @app.get("/collections/<int:pid>")
@@ -522,8 +521,7 @@ def share_pool(pid):
     pool_of(pid, owner=True); u = find_user()
     if not u or u["id"] == uid(): flash("No such user.")
     else:
-        run("""INSERT INTO pool_shares(pool_id,user_id,can_edit) VALUES(?,?,?)
-               ON CONFLICT(pool_id,user_id) DO UPDATE SET can_edit=excluded.can_edit""",
+        run(dbx.upsert("pool_shares", ["pool_id", "user_id", "can_edit"], ["pool_id", "user_id"], {"can_edit": "excluded.can_edit"}),
             pid, u["id"], int(request.form.get("role") == "edit"))
         if request.form.get("role") != "edit": drop_reservations(pid, u["id"])   # view-only can't reserve or use stock
     return redirect(url_for("pool", pid=pid))
@@ -576,7 +574,7 @@ def undo(aid):
     a = get("SELECT * FROM activity WHERE id=?", aid); pool_of(a["pool_id"], write=True)
     it = db().execute("SELECT * FROM items WHERE id=?", (a["item_id"],)).fetchone() if a["item_id"] else None
     if a["kind"] == "adjust" and not a["undone"] and it:
-        run("UPDATE items SET qty=MAX(0, qty-?) WHERE id=?", a["delta"], it["id"]); run("UPDATE activity SET undone=1 WHERE id=?", aid)
+        run(f"UPDATE items SET qty={dbx.greatest('0', 'qty-?')} WHERE id=?", a["delta"], it["id"]); run("UPDATE activity SET undone=1 WHERE id=?", aid)
         log(a["pool_id"], "undo", "Undid: " + a["text"], it["id"])
     return redirect(url_for("activity", pid=a["pool_id"]))
 
@@ -703,7 +701,7 @@ def delete_field(tid, fid):
     if not re.fullmatch(r"f\w{1,8}", fid): abort(404)
     d = db(); d.execute("UPDATE types SET fields=? WHERE id=?",
                         (json.dumps([f for f in json.loads(t["fields"]) if f["id"] != fid]), tid))
-    d.execute("UPDATE items SET extra=json_remove(extra, ?) WHERE type_id=?", (f'$."{fid}"', tid)); d.commit()
+    d.execute(f"UPDATE items SET extra={dbx.json_drop('extra')} WHERE type_id=?", (dbx.json_key(fid), tid)); d.commit()
     return redirect(url_for("type_fields", tid=tid))
 
 # ---------- items ----------
@@ -735,6 +733,7 @@ def save_item(t, item_id=None):
         item_id = run("INSERT INTO items(name,colour,hex,subtype,qty,price,low_at,location,notes,extra,type_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)", *vals, t["id"]).lastrowid
     db().execute("DELETE FROM item_places WHERE item_id=?", (item_id,))
     db().executemany("INSERT INTO item_places(item_id,place,qty) VALUES(?,?,?)", [(item_id, k, v) for k, v in places.items()])
+    fit_places(item_id, vals[4])
     db().commit()
     up = request.files.get("photo")
     if up and up.filename:
@@ -787,21 +786,35 @@ def item_adjust(iid):
     adjust_stock(i, num(request.form.get("amount")), request.form.get("action") == "add", request.form.get("place") or "")
     return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
 
+def lock_item(iid):
+    """An item's current quantity. On a server database the row stays locked until the commit, so two people using
+    the same stock at once can't both start from the same number."""
+    return db().execute("SELECT qty FROM items WHERE id=?" + (" FOR UPDATE" if DB.external else ""), (iid,)).fetchone()["qty"]
+
+def fit_places(iid, total):
+    """The other places never hold more than the item's total: when they would, they shrink in proportion (the
+    places_fit trigger does the same as a backstop for any other way qty changes)."""
+    held = db().execute("SELECT COALESCE(SUM(qty), 0) FROM item_places WHERE item_id=?", (iid,)).fetchone()[0]
+    if total < held - 1e-12:
+        db().execute("UPDATE item_places SET qty=qty*?/? WHERE item_id=?", (total, held, iid))
+        db().execute("DELETE FROM item_places WHERE item_id=? AND qty<1e-9", (iid,))
+
 def adjust_stock(i, n, add, place=""):
     """Use or add n of a stock row i, optionally at one of its other places. Returns the new total."""
     if n <= 0: return i["qty"]
-    iid = i["id"]
+    iid = i["id"]; have = lock_item(iid)
     pl = db().execute("SELECT * FROM item_places WHERE item_id=? AND place=?", (iid, place)).fetchone() if place else None
     if pl and not add: n = min(n, pl["qty"])               # can't take more from a place than it holds
-    new = max(0.0, i["qty"] + (n if add else -n))
+    new = max(0.0, have + (n if add else -n))
     if pl:                                                 # change the place first, so the total never drops below the places
         if add: db().execute("UPDATE item_places SET qty=qty+? WHERE id=?", (n, pl["id"]))
         else:
             db().execute("UPDATE item_places SET qty=qty-? WHERE id=?", (n, pl["id"]))
             db().execute("DELETE FROM item_places WHERE id=? AND qty<1e-9", (pl["id"],))
+    fit_places(iid, new)
     run("UPDATE items SET qty=? WHERE id=?", new, iid)
     where = f" {'to' if add else 'from'} {pl['place']}" if pl else ""
-    log(i["pool_id"], "adjust", f"{'Added' if add else 'Used'} {n:g} {i['unit']} of {i['name']}{where} ({i['qty']:g} to {new:g})", iid, new - i["qty"])
+    log(i["pool_id"], "adjust", f"{'Added' if add else 'Used'} {n:g} {i['unit']} of {i['name']}{where} ({have:g} to {new:g})", iid, new - have)
     return new
 
 @app.post("/items/<int:iid>/move")
@@ -824,8 +837,7 @@ def item_move(iid):
             d.execute("DELETE FROM item_places WHERE id=? AND qty<1e-9", (places[src.lower()]["id"],))
         if dst:
             if dst.lower() not in places and len(places) >= 20: d.rollback(); flash("An item can be in at most 20 other places."); return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
-            d.execute("""INSERT INTO item_places(item_id,place,qty) VALUES(?,?,?)
-                         ON CONFLICT(item_id,place) DO UPDATE SET qty=qty+excluded.qty""", (iid, dst, n))
+            d.execute(dbx.upsert("item_places", ["item_id", "place", "qty"], ["item_id", "place"], {"qty": "item_places.qty+excluded.qty"}), (iid, dst, n))
         log(i["pool_id"], "move", f"Moved {n:g} {i['unit']} of {i['name']} from {src or i['location'] or 'main location'} to {dst or i['location'] or 'main location'}", iid, commit=False)
         d.commit()
     return redirect(safe_next(url_for("pool", pid=i["pool_id"])))
@@ -916,8 +928,8 @@ def del_token(tid):
 @app.get("/projects")
 def projects():
     me = uid()
-    rows = q("""SELECT p.*, u.username AS owner,
-                (SELECT group_concat(DISTINCT s.hex) FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=p.id AND s.hex<>'') AS hexes,
+    rows = q(f"""SELECT p.*, u.username AS owner,
+                (SELECT {GROUP_HEX} FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=p.id AND s.hex<>'') AS hexes,
                 (SELECT COUNT(*) FROM assignments WHERE project_id=p.id) AS n_items,
                 (SELECT COUNT(*) FROM steps WHERE project_id=p.id) AS n_steps,
                 (SELECT COUNT(*) FROM files WHERE project_id=p.id) AS n_files
@@ -966,8 +978,7 @@ def assign(id):
     if n <= 0: flash("Enter an amount above zero.")
     else:
         short = n - max(it["free"], 0)       # more than is free is allowed: the gap lands on the shopping list
-        run("""INSERT INTO assignments(project_id,item_id,qty) VALUES(?,?,?)
-               ON CONFLICT(project_id,item_id) DO UPDATE SET qty=qty+excluded.qty""", id, it["id"], n)
+        run(dbx.upsert("assignments", ["project_id", "item_id", "qty"], ["project_id", "item_id"], {"qty": "assignments.qty+excluded.qty"}), id, it["id"], n)
         if short > 1e-9 and pr["status"] != "template": flash(f"That's {short:g} {it['unit']} more than you have free. It's on your shopping list.")
     return redirect(url_for("project", id=id))
 
@@ -1080,7 +1091,7 @@ def del_project(id):
 def share_project(id):
     project_of(id, True); u = find_user()
     if not u or u["id"] == uid(): flash("No such user.")
-    else: run("INSERT OR IGNORE INTO project_shares(project_id,user_id) VALUES(?,?)", id, u["id"])
+    else: run(dbx.insert_ignore("project_shares", ["project_id", "user_id"]), id, u["id"])
     return redirect(url_for("project", id=id))
 
 @app.post("/projects/<int:id>/unshare/<int:user>")
@@ -1217,8 +1228,8 @@ def api_gate():
     g.user, g.api_write = row, bool(row["can_write"])
     if request.method not in ("GET", "HEAD", "OPTIONS") and not g.api_write:
         return api_error(403, "This token is read-only. Make one with write access to change stock.")
-    db().execute("UPDATE api_tokens SET last_used=datetime('now') WHERE id=? AND (last_used IS NULL OR last_used < datetime('now','-60 seconds'))",
-                 (row["tid"],)); db().commit()
+    db().execute("UPDATE api_tokens SET last_used=? WHERE id=? AND (last_used IS NULL OR last_used < ?)",
+                 (dbx.now(), row["tid"], dbx.ago(60 / 86400))); db().commit()
 
 @app.errorhandler(HTTPException)
 def http_error(e):
@@ -1271,12 +1282,12 @@ def api_summary():
     """Counts for dashboard sensors."""
     me = uid()
     s = db().execute("""SELECT COUNT(*) AS items,
-                               SUM(s.qty<=0) AS out_of_stock,
-                               SUM(s.qty>0 AND s.low_at IS NOT NULL AND s.qty<=s.low_at AND s.free>=0) AS low_stock,
-                               SUM(s.free<0) AS short,
+                               SUM(CASE WHEN s.qty<=0 THEN 1 ELSE 0 END) AS out_of_stock,
+                               SUM(CASE WHEN s.qty>0 AND s.low_at IS NOT NULL AND s.qty<=s.low_at AND s.free>=0 THEN 1 ELSE 0 END) AS low_stock,
+                               SUM(CASE WHEN s.free<0 THEN 1 ELSE 0 END) AS short,
                                COALESCE(SUM(CASE WHEN s.price IS NOT NULL AND s.qty>0 THEN s.qty*s.price END),0) AS stash_value
                         FROM stock s JOIN access a ON a.pool_id=s.pool_id WHERE a.user_id=?""", (me,)).fetchone()
-    pr = db().execute("""SELECT SUM(status='planned') AS planned, SUM(status='active') AS active FROM projects
+    pr = db().execute("""SELECT SUM(CASE WHEN status='planned' THEN 1 ELSE 0 END) AS planned, SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active FROM projects
                          WHERE user_id=? OR id IN (SELECT project_id FROM project_shares WHERE user_id=?)""", (me, me)).fetchone()
     return jsonify(shopping_list=len(shopping_rows()), items=s["items"], out_of_stock=s["out_of_stock"] or 0,
                    low_stock=s["low_stock"] or 0, short=s["short"] or 0, stash_value=round(s["stash_value"], 2), currency=currency(),

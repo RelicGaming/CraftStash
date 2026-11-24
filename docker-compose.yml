@@ -24,6 +24,16 @@ services:
       BACKUP_DIR: "${BACKUP_DIR:-}"           # daily snapshots              e.g. /backups
       TMP_DIR: "${TMP_DIR:-}"                 # uploads while they arrive, backup zips (default /data/tmp)
       CHOWN: "${CHOWN:-auto}"                 # auto | always | never (never for NAS shares with their own permissions)
+      # Database: SQLite in /data unless one of these points at an external server (see "Database" in the README).
+      DATABASE_URL: "${DATABASE_URL:-}"       # e.g. postgresql://craftstash:secret@postgres:5432/craftstash
+      DB_TYPE: "${DB_TYPE:-}"                 # or the parts separately: postgres, with DB_HOST, DB_PORT, DB_NAME, DB_USER,
+      DB_HOST: "${DB_HOST:-}"                 #   DB_PASSWORD (or DB_PASSWORD_FILE for a Docker secret)
+      DB_PORT: "${DB_PORT:-}"
+      DB_NAME: "${DB_NAME:-}"
+      DB_USER: "${DB_USER:-}"
+      DB_PASSWORD: "${DB_PASSWORD:-}"
+      DB_SSLMODE: "${DB_SSLMODE:-}"           # disable | prefer | require | verify-full
+      DB_CONNECT_TIMEOUT: "${DB_CONNECT_TIMEOUT:-60}"   # seconds to wait for the database at startup
     volumes:
       - craft-data:/data                      # database, secret key, and (unless mapped below) uploads, photos, snapshots
       # Unraid-style bind mount instead:
