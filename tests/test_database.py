@@ -131,3 +131,8 @@ def test_usernames_and_places_ignore_case_on_postgres(env, amy):
     seed(amy); amy.post("/items/1/edit", {"name": "Merino", "qty": "5", "place_name": ["Shelf"], "place_qty": ["2"]})
     amy.post("/items/1/move", {"amount": "1", "from": "", "to": "SHELF"})
     assert env.db().execute("SELECT place, qty FROM item_places").fetchall() == [("Shelf", 3.0)]
+
+def test_empty_settings_count_as_unset(monkeypatch):
+    """docker-compose passes every variable, so DB_USER= and DB_NAME= arrive as empty strings."""
+    c = cfg(monkeypatch, DB_TYPE="postgres", DB_PASSWORD="pw", DB_USER="", DB_NAME="", DB_HOST="", DB_PORT="", DATABASE_URL="")
+    assert c.url == "postgresql://craftstash:pw@postgres:5432/craftstash"

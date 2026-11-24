@@ -64,7 +64,8 @@ def config_from_env(sqlite_path):
         kind = _engine_of(os.environ["DB_TYPE"].strip())
         host = os.environ.get("DB_HOST", "").strip() or ("postgres" if kind == "postgres" else "mariadb")
         port = os.environ.get("DB_PORT", "").strip() or ("5432" if kind == "postgres" else "3306")
-        user, name = os.environ.get("DB_USER", "craftstash").strip(), os.environ.get("DB_NAME", "craftstash").strip()
+        # Empty counts as unset: compose files pass every variable, set or not.
+        user, name = os.environ.get("DB_USER", "").strip() or "craftstash", os.environ.get("DB_NAME", "").strip() or "craftstash"
         pw = secret("DB_PASSWORD")
         url = f"{'postgresql' if kind == 'postgres' else 'mysql'}://{quote(user, safe='')}:{quote(pw, safe='')}@{host}:{port}/{quote(name, safe='')}"
     if not url: return Config("sqlite", sqlite_path=Path(sqlite_path), connect_timeout=timeout)
