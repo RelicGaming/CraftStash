@@ -454,9 +454,9 @@ def search():
 
 @app.post("/collections")
 def new_pool():
-    if clean("name", 80):
-        run("INSERT INTO pools(user_id,name,craft) VALUES(?,?,?)", uid(), clean("name", 80), clean("craft", 80))
-    return redirect(url_for("home"))
+    if not clean("name", 80): flash("Give the collection a name."); return redirect(url_for("home"))
+    c = run("INSERT INTO pools(user_id,name,craft) VALUES(?,?,?)", uid(), clean("name", 80), clean("craft", 80))
+    return redirect(url_for("pool", pid=c.lastrowid))          # straight into it, where the first type is set up
 
 @app.post("/collections/<int:pid>/delete")
 def del_pool(pid):
@@ -508,6 +508,7 @@ def pool(pid):
     shares = q("""SELECT u.id, u.username, s.can_edit FROM pool_shares s JOIN users u ON u.id=s.user_id
                   WHERE s.pool_id=? ORDER BY u.username""", pid) if p["is_owner"] else []
     return render_template("pool.html", pool=p, groups=groups, places=places_in(pid), term=term, shares=shares, hint=(labels or ["Width"])[0], sort=sort, impact=pool_impact(pid) if p["is_owner"] else None,
+                           has_items=bool(by_type) or bool(term), presets=presets_for(p, types),
                            value=db().execute("SELECT COALESCE(SUM(qty*price),0) FROM stock WHERE pool_id=? AND price IS NOT NULL", (pid,)).fetchone()[0],
                            hexes=[r["hex"] for r in q("SELECT DISTINCT hex FROM stock WHERE pool_id=? AND hex<>'' LIMIT 40", pid)])
 
@@ -614,15 +615,49 @@ def label_taken(fl, label, skip=None):
 
 def save_fields(tid, fl): run("UPDATE types SET fields=? WHERE id=?", json.dumps(fl), tid)
 
+# Ready-made material types, so a new collection can be set up in one tap. Fields use the starter-field syntax below.
+PRESETS = {
+    "yarn":    ("Yarn", "skein", "Weight: Lace, Fingering, Sport, DK, Worsted, Aran, Bulky, Super bulky\nFibre\nLength per skein (m)", "knit crochet weav"),
+    "needles": ("Needles & hooks", "pcs", "Kind: Straight, Circular, Double pointed, Crochet hook\nSize (mm)\nLength (cm)", "knit crochet"),
+    "fabric":  ("Fabric", "m", "Width (cm)\nFibre\nPattern", "quilt sew embroider cross stitch patchwork"),
+    "thread":  ("Thread", "spool", "Brand\nWeight", "quilt sew"),
+    "floss":   ("Embroidery floss", "skein", "Brand\nColour number", "embroider cross stitch"),
+    "notions": ("Notions", "pcs", "Kind: Zip, Elastic, Interfacing, Ribbon, Other\nSize", "sew quilt"),
+    "buttons": ("Buttons", "pcs", "Size (mm)\nMaterial", "knit sew"),
+    "beads":   ("Beads", "g", "Size\nMaterial", "bead jewel"),
+    "paint":   ("Paint", "tube", "Brand\nMedium: Acrylic, Oil, Watercolour, Gouache", "paint art"),
+}
+
+def presets_for(pool, types):
+    """Preset keys not already used in this collection, the ones that suit its name or craft first."""
+    words, have = f"{pool['name']} {pool['craft']}".lower(), {t["name"].lower() for t in types}
+    keys = [k for k, p in PRESETS.items() if p[0].lower() not in have]
+    return [(k, PRESETS[k]) for k in sorted(keys, key=lambda k: not any(w in words for w in PRESETS[k][3].split()))]
+
+def starter_fields(text):
+    """One field per line. "Width (cm)" makes a number field, "Fibre: Cotton, Linen" a dropdown, anything else text.
+    A single line without a colon is still read as the older comma-separated list of text fields."""
+    lines = text.splitlines() if "\n" in text.strip() or ":" in text else text.split(",")
+    out, seen = [], set()
+    for line in lines:
+        label, _, opts = line.partition(":")
+        label = label.strip()[:40]
+        if not label or label.lower() in seen or len(out) >= 20: continue
+        seen.add(label.lower())
+        opts = [o.strip()[:60] for o in opts.split(",") if o.strip()][:30]
+        typ = "choice" if opts else "number" if re.search(r"\(\s*[^()]{1,10}\s*\)$", label) else "text"
+        out.append(new_field(label, typ, opts))
+    return out
+
 @app.post("/collections/<int:pid>/types")
 def new_type(pid):
     pool_of(pid, write=True)
-    labels = list(dict.fromkeys(f.strip()[:40] for f in re.split(r"[,\n]", request.form.get("fields", "")) if f.strip()))[:12]
-    if clean("name", 60):
-        c = run("INSERT INTO types(pool_id,name,unit,fields) VALUES(?,?,?,?)", pid, clean("name", 60),
-                clean("unit", 20) or "pcs", json.dumps([new_field(l) for l in labels]))
-        return redirect(url_for("type_fields", tid=c.lastrowid))
-    return redirect(url_for("pool", pid=pid))
+    preset = PRESETS.get(request.form.get("preset", ""))
+    name, unit, fields = (preset[:3] if preset else (clean("name", 60), clean("unit", 20), request.form.get("fields", "")))
+    if not name: flash("Give the material type a name."); return redirect(url_for("pool", pid=pid))
+    c = run("INSERT INTO types(pool_id,name,unit,fields) VALUES(?,?,?,?)", pid, name, unit or "pcs", json.dumps(starter_fields(fields)))
+    flash(f"{name} is ready. Add your first {name.lower()} below. You can change its fields at any time.")
+    return redirect(url_for("item_new", tid=c.lastrowid))
 
 @app.post("/types/<int:tid>/delete")
 def del_type(tid):
@@ -709,7 +744,10 @@ def save_item(t, item_id=None):
     else:
         moved = f", stock {old['qty']:g} to {vals[4]:g}" if abs(old["qty"] - vals[4]) > 1e-9 else ""
         log(t["pool_id"], "edit", f"Edited {vals[0]}{moved}", item_id)
-    return redirect(url_for("pool", pid=t["pool_id"]))
+    if old is None and request.form.get("then") == "another":       # "Save and add another" keeps the user in the form
+        flash(f"Added {vals[0]}. Add the next {t['name'].lower()}.")
+        return redirect(url_for("item_new", tid=t["id"]))
+    return redirect(url_for("pool", pid=t["pool_id"], _anchor=f"item-{item_id}"))
 
 @app.route("/types/<int:tid>/items/new", methods=["GET", "POST"])
 def item_new(tid):
