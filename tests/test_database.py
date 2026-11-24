@@ -173,3 +173,8 @@ def test_mysql_account_without_trigger_rights_still_works(tmp_path):
                        env={**os.environ, "DATA_DIR": str(tmp_path), "DATABASE_URL": url, "BACKUP_KEEP": "0"})
     assert r.returncode == 0, r.stderr
     assert "places_fit trigger" in r.stdout + r.stderr
+
+def test_empty_settings_count_as_unset(monkeypatch):
+    """docker-compose passes every variable, so DB_USER= and DB_NAME= arrive as empty strings."""
+    c = cfg(monkeypatch, DB_TYPE="postgres", DB_PASSWORD="pw", DB_USER="", DB_NAME="", DB_HOST="", DB_PORT="", DATABASE_URL="")
+    assert c.url == "postgresql://craftstash:pw@postgres:5432/craftstash"
