@@ -73,7 +73,12 @@
   // Shopping list: copy as text.
   $('copy')?.addEventListener('click', async e => {
     const t = [...document.querySelectorAll('[data-line]')].map(n => '- ' + n.dataset.line).join('\n');
-    try { await navigator.clipboard.writeText(t); e.currentTarget.lastChild.textContent = 'Copied'; } catch (_) { prompt('Copy this list:', t); }
+    const b = e.currentTarget;     // currentTarget is gone after the await
+    try { await navigator.clipboard.writeText(t); b.lastChild.textContent = 'Copied'; } catch (_) { prompt('Copy this list:', t); }
+  });
+  // Shopping list: fill every empty "bought" box with the suggested amount.
+  $('fill')?.addEventListener('click', () => {
+    document.querySelectorAll('input[data-suggest]').forEach(i => { if (!i.value) i.value = i.dataset.suggest; });
   });
 
   // Appearance: live preview and contrast check for custom colours.
