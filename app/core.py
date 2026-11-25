@@ -158,6 +158,10 @@ GROUP_HEX = dbx.group_concat_distinct("s.hex")   # the colour swatches on collec
 LIKE = dbx.like_op()                # case-insensitive LIKE with ! as the escape, on every database
 def like(term): return "%" + re.sub(r"[!%_]", lambda m: "!" + m[0], term) + "%"   # so "50%" or "a_b" match literally
 
+def clean_tag(text):
+    """A project tag: lower case, single spaces, letters/digits/space/- /_ only, up to 30 characters. '' if nothing is left."""
+    return re.sub(r"\s+", " ", re.sub(r"[^\w -]", "", (text or "").lower())).strip(" -")[:30]
+
 def clean(name, n=120): return (request.form.get(name) or "").strip()[:n]
 
 # ---------- access helpers: a row is only visible if the logged-in user may see it ----------
@@ -176,8 +180,11 @@ def item_of(iid, write=False):
                   WHERE s.id=? AND a.user_id=?""" + (" AND a.can_edit=1" if write else ""), iid, uid())
 
 def project_of(id, write=False):
+    """The project, if the user may see it (write=True: only the owner). Asking to write marks it as just updated."""
     p = get("SELECT p.*, u.username AS owner FROM projects p JOIN users u ON u.id=p.user_id WHERE p.id=?", id)
-    if p["user_id"] == uid(): return p
+    if p["user_id"] == uid():
+        if write: run("UPDATE projects SET updated=? WHERE id=?", dbx.now(), id)
+        return p
     if not write and db().execute("SELECT 1 FROM project_shares WHERE project_id=? AND user_id=?", (id, uid())).fetchone():
         return p
     abort(404)

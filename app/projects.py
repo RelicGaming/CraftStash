@@ -1,29 +1,84 @@
 """Projects, steps and attachments."""
-import core, dbx, shutil, uuid
+import core, dbx, re, shutil, uuid
 from flask import abort, flash, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
-from core import (ALLOWED, app, CAN_EDIT, clean, content_ok, db, FILE_CSP, file_of, find_user, get, GROUP_HEX,
-    INLINE, item_of, log, num, PHOTOS, project_of, purge_files, purge_step_photos, q, run, save_photo, step_of,
+from core import (ALLOWED, app, CAN_EDIT, clean, clean_tag, content_ok, db, FILE_CSP, file_of, find_user, get, GROUP_HEX,
+    INLINE, item_of, like, LIKE, log, num, PHOTOS, project_of, purge_files, purge_step_photos, q, run, save_photo, step_of,
     uid, UPLOADS, used_bytes)
 from items import fit_places
 
 # ---------- projects ----------
-@app.get("/projects")
-def projects():
-    me = uid()
-    rows = q(f"""SELECT p.*, u.username AS owner,
+STATUSES = ("planned", "active", "done", "template")
+SORTS = {"name": "Name", "updated": "Recently updated", "newest": "Newest"}
+GROUPS = {"status": "Status", "tag": "Tag", "none": "No grouping"}
+MAX_TAGS = 20
+
+def project_filters(args):
+    """The filter bar's choices from the query string, each checked against what's allowed."""
+    f = {"q": (args.get("q") or "").strip()[:100],
+         "status": [s for s in STATUSES if s in args.getlist("status")],
+         "shared": args.get("shared") == "1",
+         "tags": sorted({t for t in map(clean_tag, args.getlist("tag")) if t}),
+         "pool": args.get("pool", type=int) or 0,
+         "group": args.get("group") if args.get("group") in GROUPS else "status",
+         "sort": args.get("sort") if args.get("sort") in SORTS else "name"}
+    f["active"] = bool(f["q"] or f["status"] or f["shared"] or f["tags"] or f["pool"])
+    return f
+
+def visible_projects(me, f):
+    """Every project the user can see that matches the text and collection filters (the rest are filtered in Python)."""
+    pat = like(f["q"]) if f["q"] else ""
+    return q(f"""SELECT p.*, u.username AS owner,
                 (SELECT {GROUP_HEX} FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=p.id AND s.hex<>'') AS hexes,
                 (SELECT COUNT(*) FROM assignments WHERE project_id=p.id) AS n_items,
                 (SELECT COUNT(*) FROM steps WHERE project_id=p.id) AS n_steps,
                 (SELECT COUNT(*) FROM files WHERE project_id=p.id) AS n_files
                 FROM projects p JOIN users u ON u.id=p.user_id
-                WHERE p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?)
-                ORDER BY p.user_id<>?, p.status='template', p.status='done', p.name""", me, me, me)
-    return render_template("projects.html", rows=rows)
+                WHERE (p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?))
+                  AND (?='' OR p.name {LIKE} OR p.notes {LIKE}
+                       OR EXISTS(SELECT 1 FROM steps st WHERE st.project_id=p.id AND (st.title {LIKE} OR st.body {LIKE})))
+                  AND (?=0 OR EXISTS(SELECT 1 FROM assignments a JOIN stock s ON s.id=a.item_id
+                                     WHERE a.project_id=p.id AND s.pool_id=? AND s.pool_id IN (SELECT pool_id FROM access WHERE user_id=?)))""",
+             me, me, f["q"], pat, pat, pat, pat, f["pool"], f["pool"], me)
+
+def tags_of(me):
+    """{project id: [tags]} for every project the user can see."""
+    out = {}
+    for r in q("""SELECT t.project_id, t.tag FROM project_tags t JOIN projects p ON p.id=t.project_id
+                  WHERE p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?) ORDER BY t.tag""", me, me):
+        out.setdefault(r["project_id"], []).append(r["tag"])
+    return out
+
+def project_sections(rows, f, me):
+    """The filtered, sorted projects as [(heading, [projects])]. The default (group by status) is the classic layout."""
+    key = {"name": lambda r: r["name"].lower(), "updated": lambda r: (r["updated"], r["id"]), "newest": lambda r: (r["created"], r["id"])}[f["sort"]]
+    rows = sorted(rows, key=key, reverse=f["sort"] != "name")
+    if f["status"]: rows = [r for r in rows if r["status"] in f["status"]]
+    if f["shared"]: rows = [r for r in rows if r["user_id"] != me]
+    if f["tags"]: rows = [r for r in rows if set(f["tags"]) <= set(r["tags"])]
+    if f["group"] == "none": return [("", rows)] if rows else []
+    if f["group"] == "tag":
+        names = sorted({t for r in rows for t in r["tags"]})
+        sections = [(t, [r for r in rows if t in r["tags"]]) for t in names]
+        return sections + ([("Untagged", [r for r in rows if not r["tags"]])] if any(not r["tags"] for r in rows) else [])
+    if f["sort"] == "name": rows.sort(key=lambda r: r["status"] == "done")     # as before: finished projects last
+    mine = [r for r in rows if r["user_id"] == me and r["status"] != "template"]
+    return [("", mine), ("Templates", [r for r in rows if r["user_id"] == me and r["status"] == "template"]),
+            ("Shared with you", [r for r in rows if r["user_id"] != me])]
+
+@app.get("/projects")
+def projects():
+    me = uid(); f = project_filters(request.args); tags = tags_of(me)
+    rows = [{**dict(zip(r.keys(), r)), "tags": tags.get(r["id"], [])} for r in visible_projects(me, f)]
+    counts = {}
+    for t in (t for ts in tags.values() for t in ts): counts[t] = counts.get(t, 0) + 1
+    return render_template("projects.html", sections=project_sections(rows, f, me), f=f, total=len(rows), statuses=STATUSES, sorts=SORTS,
+                           groups=GROUPS, all_tags=sorted(set(counts) | set(f["tags"])),
+                           pools=q("SELECT p.id, p.name FROM pools p JOIN access a ON a.pool_id=p.id WHERE a.user_id=? ORDER BY p.name", me))
 
 @app.post("/projects")
 def new_project():
-    c = run("INSERT INTO projects(user_id,name) VALUES(?,?)", uid(), clean("name", 100) or "Untitled project")
+    c = run("INSERT INTO projects(user_id,name,created,updated) VALUES(?,?,?,?)", uid(), clean("name", 100) or "Untitled project", dbx.now(), dbx.now())
     return redirect(url_for("project", id=c.lastrowid))
 
 @app.get("/projects/<int:id>")
@@ -41,7 +96,9 @@ def project(id):
                            cost=sum(a["qty"] * a["price"] for a in assigned if a["price"] is not None),
                            steps=q("SELECT * FROM steps WHERE project_id=? ORDER BY pos", id), max_photos=STEP_PHOTOS,
                            photos=photos_by_step(id),
-                           files=q("SELECT * FROM files WHERE project_id=? ORDER BY name", id))
+                           files=q("SELECT * FROM files WHERE project_id=? ORDER BY name", id),
+                           tags=[r["tag"] for r in q("SELECT tag FROM project_tags WHERE project_id=? ORDER BY tag", id)],
+                           known_tags=sorted({t for ts in tags_of(uid()).values() for t in ts}))
 
 @app.post("/projects/<int:id>/update")
 def project_update(id):
@@ -50,6 +107,22 @@ def project_update(id):
     if pr["status"] in ("done", "template") or status not in ("planned", "active"): status = pr["status"]
     run("UPDATE projects SET name=?, status=?, notes=? WHERE id=?",
         clean("name", 100) or pr["name"], status, clean("notes", 5000), id)
+    return redirect(url_for("project", id=id))
+
+@app.post("/projects/<int:id>/tags")
+def add_tags(id):
+    project_of(id, True)
+    have = {r["tag"] for r in q("SELECT tag FROM project_tags WHERE project_id=?", id)}
+    for t in dict.fromkeys(filter(None, map(clean_tag, re.split(r"[,\n]", request.form.get("tags", ""))))):
+        if t in have: continue
+        if len(have) >= MAX_TAGS: flash(f"A project can have up to {MAX_TAGS} tags."); break
+        run(dbx.insert_ignore("project_tags", ["project_id", "tag"]), id, t); have.add(t)
+    return redirect(url_for("project", id=id))
+
+@app.post("/projects/<int:id>/tags/delete")
+def delete_tag(id):
+    project_of(id, True)
+    run("DELETE FROM project_tags WHERE project_id=? AND tag=?", id, clean_tag(request.form.get("tag")))
     return redirect(url_for("project", id=id))
 
 @app.post("/projects/<int:id>/assign")
@@ -126,8 +199,9 @@ def copy_project(id):
     if not mine and mats:    # the new owner can't use someone else's stock, so the materials become a written list
         lines = [f"- {a['qty']:g} {a['unit']} {a['name']}" + (f" ({a['colour']})" if a["colour"] else "") for a in mats]
         notes = (notes + "\n\n" if notes else "") + "Materials from the original:\n" + "\n".join(lines)
-    nid = d.execute("INSERT INTO projects(user_id,name,notes,status) VALUES(?,?,?,?)",
-                    (uid(), name[:100], notes[:5000], "template" if to_template else "planned")).lastrowid
+    nid = d.execute("INSERT INTO projects(user_id,name,notes,status,created,updated) VALUES(?,?,?,?,?,?)",
+                    (uid(), name[:100], notes[:5000], "template" if to_template else "planned", dbx.now(), dbx.now())).lastrowid
+    d.execute("INSERT INTO project_tags(project_id,tag) SELECT ?, tag FROM project_tags WHERE project_id=?", (nid, id))
     if mine: d.execute(f"""INSERT INTO assignments(project_id,item_id,qty) SELECT ?, a.item_id, a.qty FROM assignments a
                            JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND {CAN_EDIT}""", (nid, id, uid()))
     over = missing = 0; copied = []

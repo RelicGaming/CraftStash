@@ -17,6 +17,7 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 - Search a collection for any text or one field (`Width:150`), sort, export or **import CSV** (with a check-only mode), see the **activity** history and undo stock changes.
 - **Shopping list** across every collection you can use: out of stock, low, or short for a project. Enter what you bought (or take the suggested amounts) and restock everything in one go. Assigning more than you have is allowed and the gap lands on the list.
 - **Projects**: reserve supplies, **templates** (save a project as a reusable pattern, start new projects from it; templates hold no stock), numbered steps (each with up to 6 photos, counted towards your storage limit), attached guides, estimated cost, print layout, duplicate, complete (enter how much of each material you actually used and only that is deducted, or keep stock untouched) and reopen (puts it back).
+- **Tags and filters** for projects: tag them (`gifts`, `baby`), then search, filter by status, tag or the collection they use, group and sort. A filtered view has its own address, so you can bookmark it.
 - **Sharing**: collections view-only or can-edit; projects read-only, and a viewer can save their own copy. People can leave what's shared with them.
 - Per-user **themes** (presets or custom colours and corner style), changeable password, admin currency symbol, per-user storage limit, disable users.
 - Daily database snapshots and a one-click full backup (admin).
@@ -168,6 +169,11 @@ self-test from the **Admin** page (account menu, top right).
 
 `docker logs craft-stash` shows what the container started with: a `[storage]` line (each folder, whether it's
 mapped, free space) and a `[config]` line (database, proxy trust, path prefix, limits; never a password or key).
+
+## Project tags and filters
+Open a project and add tags in the **Tags** panel (separate several with commas; the box suggests tags you've used before). Tags are lower case, up to 30 letters, numbers, spaces, `-` or `_`, and a project holds up to 20. People a project is shared with can see its tags but not change them.
+
+The **Projects** page has a filter bar: search (names, notes and step text), status chips, tag chips (a project must have *all* the tags you pick), **Uses collection**, **Group by** (status, tag, or nothing) and **Sort** (name, recently updated, newest). With nothing chosen it looks as it always did. The address holds your choices (`/projects?tag=gifts&status=active`), so a filtered view can be bookmarked, and the browser remembers your last choice until you press **Clear**. Saving a project as a template or copying it keeps its tags.
 
 ## Storage
 Everything is kept under `/data` by default. Each kind of file can be mapped to its own volume or host folder instead:
@@ -517,7 +523,7 @@ Send the token with every request as `Authorization: Bearer cs_…`. Responses a
 | `GET /api/v1/items/<id>` | One item, including its places |
 | `POST /api/v1/items/<id>/adjust` | `{"action": "use", "amount": 2}` or `"add"`. Add `"place": "Shelf B"` for one of its other places |
 | `GET /api/v1/collections`, `GET /api/v1/collections/<id>` | Collections, and one collection with its types, fields and items |
-| `GET /api/v1/projects?status=`, `GET /api/v1/projects/<id>` | Projects, and one project with its materials and steps |
+| `GET /api/v1/projects`, `GET /api/v1/projects/<id>` | Projects (each with its tags and dates), and one project with its materials and steps. Filters: `status=` (repeat for several), `tag=` (repeat: all must match), `q=` (name, notes and steps), `pool=<collection id>` (uses supplies from it), `sort=name\|updated\|newest` |
 
 Stock changes made through the API go into the collection's activity history under your name, so they can be undone there. After 8 wrong tokens from one address in 10 minutes, that address gets `429` responses until the 10 minutes are up.
 
