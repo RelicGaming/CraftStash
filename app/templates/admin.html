@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% block title %}Admin - Craft Stash{% endblock %}
 {% block body %}
 <div class="page-head"><h1>Admin</h1></div>
+{% if sso_warning %}<p class="notice" role="alert" style="background:var(--danger-soft);border-color:var(--danger)"><strong>Single sign-on is not secure.</strong> {{ sso_warning }}</p>{% endif %}
 <h2 class="section-title" style="margin-top:0">Users</h2>
 <section class="panel" style="padding:8px 20px"><div class="scroll"><table><tr><th>User<th>Collections<th>Projects<th>Storage<th>Reset password<th></tr>
 {% for u in users %}<tr><td><div class="inline" style="flex-wrap:nowrap"><span class="avatar" style="--h:{{ (u.id * 67) % 360 }}">{{ u.username[0]|upper }}</span><strong>{{ u.username }}</strong>{% if u.is_admin %}<span class="pill accent">Admin</span>{% endif %}{% if not u.active %}<span class="pill bad">Disabled</span>{% endif %}</div>

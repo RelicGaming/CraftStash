@@ -42,7 +42,7 @@ def test_command_line_password_reset_rescues_a_locked_out_admin(env, amy):
 
 def test_storage_quota_is_enforced(make_env):
     e = make_env(USER_QUOTA_MB=1); c = e.client().register("amy"); seed(c)
-    ok = c.post("/projects/1/upload", {"file": (io.BytesIO(b"x" * 600_000), "a.pdf")}); big = c.post("/projects/1/upload", {"file": (io.BytesIO(b"x" * 600_000), "b.pdf")}, follow_redirects=True)
+    ok = c.post("/projects/1/upload", {"file": (io.BytesIO(b"%PDF-" + b"x" * 600_000), "a.pdf")}); big = c.post("/projects/1/upload", {"file": (io.BytesIO(b"%PDF-" + b"x" * 600_000), "b.pdf")}, follow_redirects=True)
     assert "storage limit" in big.get_data(as_text=True) and len(list((e.data / "uploads").glob("*.pdf"))) == 1
 
 def test_cleanup_finds_orphans(env, amy):

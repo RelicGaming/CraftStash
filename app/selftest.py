@@ -359,9 +359,12 @@ def _(t):
     u = t.user(); prj = new_project(u); up = lambda n, b: u.post(f"/projects/{prj}/upload", {}, files={"file": (n, b, "application/octet-stream")}).text
     p = up("pattern.pdf", b"%PDF-1.4 test"); fid = re.search(r'href="/files/(\d+)"', p)[1]; r = u.get(f"/files/{fid}")
     assert r.headers.get("Content-Type") == "application/pdf" and "attachment" not in (r.headers.get("Content-Disposition") or ""), "PDF should open inline"
-    assert not r.headers.get("Content-Security-Policy"), "CSP on a PDF breaks the browser viewer"
+    assert not r.headers.get("Content-Security-Policy"), "CSP on a PDF can break the browser viewer"
+    assert "look like a real" in up("fake.pdf", b"<html><script>alert(1)</script>"), "a page renamed to .pdf was accepted"
     up("notes.docx", b"PK\x03\x04"); fid2 = re.search(r'href="/files/(\d+)"[^>]*>notes\.docx', u.get(f"/projects/{prj}").text)[1]
-    assert "attachment" in (u.get(f"/files/{fid2}").headers.get("Content-Disposition") or ""), "documents should download"
+    r2 = u.get(f"/files/{fid2}")
+    assert "attachment" in (r2.headers.get("Content-Disposition") or ""), "documents should download"
+    assert "default-src 'none'" in (r2.headers.get("Content-Security-Policy") or ""), "other attachments need the locked-down file CSP"
     assert "not allowed" in up("evil.exe", b"MZ"), "an .exe upload was accepted"
     u.post(f"/files/{fid}/delete"); assert u.get(f"/files/{fid}").status == 404, "file not deleted"
 
@@ -422,7 +425,7 @@ def _(t):
 
 @check("Limits", "Per-user storage quota is enforced")
 def _(t):
-    u = t.user(); prj = new_project(u); up = lambda n: u.post(f"/projects/{prj}/upload", {}, files={"file": (n, b"x" * 600_000, "application/pdf")}).text
+    u = t.user(); prj = new_project(u); up = lambda n: u.post(f"/projects/{prj}/upload", {}, files={"file": (n, b"%PDF-1.4" + b"x" * 600_000, "application/pdf")}).text
     up("a.pdf"); assert "storage limit" in up("b.pdf"), "second 600 KB upload should exceed the 1 MB test quota"
 
 @check("Proxy", "Secure cookies only when the proxy says the request was HTTPS")

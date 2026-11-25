@@ -18,6 +18,26 @@ P = paths.Paths(); P.check()        # every folder can be mapped on its own; ref
 DATA, UPLOADS, PHOTOS = P.data, P.uploads, P.photos
 ALLOWED = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt", "md", "doc", "docx", "odt", "xls", "xlsx", "zip"}
 INLINE = {"pdf", "png", "jpg", "jpeg", "gif", "webp", "txt"}  # everything else downloads
+# What each allowed type's first bytes must look like, so a page or script renamed to .pdf or .png is refused.
+MAGIC = {"pdf": (b"%PDF-",), "png": (b"\x89PNG\r\n\x1a\n",), "jpg": (b"\xff\xd8\xff",), "jpeg": (b"\xff\xd8\xff",),
+         "gif": (b"GIF87a", b"GIF89a"), "webp": (b"RIFF",), "zip": (b"PK\x03\x04", b"PK\x05\x06"),
+         "docx": (b"PK\x03\x04",), "xlsx": (b"PK\x03\x04",), "odt": (b"PK\x03\x04",),
+         "doc": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",), "xls": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",)}
+# Attachments open in their own tab, never framed by another site, and can't load or run anything if a browser ever
+# rendered one as a page. PDFs get none: browsers' PDF viewers can refuse to show a PDF that carries a CSP (Chrome
+# with "sandbox" for one), and they already run a PDF's scripts walled off from this site.
+FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+
+def content_ok(ext, head):
+    """True when the start of an upload matches its extension. Text must be UTF-8 without NULs or markup-looking starts."""
+    if ext in ("txt", "md"):
+        try: text = head.decode("utf-8")
+        except UnicodeDecodeError as e:
+            if e.start < len(head) - 4: return False        # only a character cut off at the end of the sample is fine
+            text = head[:e.start].decode("utf-8")
+        return "\x00" not in text and not re.match(r"\s*<(?:!doctype|html|script|svg|\?xml)", text, re.I)
+    if ext == "webp" and head[8:12] != b"WEBP": return False
+    return head.startswith(MAGIC.get(ext, (b"",)))
 QUOTA = int(os.environ.get("USER_QUOTA_MB", "500") or 0) * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = 40_000_000
 CSP = ("default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
@@ -362,6 +382,7 @@ def logout():
 
 # ---------- single sign-on (OpenID Connect; see oidc.py) ----------
 SSO = oidc.Config()
+if SSO.warning(): print(f"[sso] WARNING: {SSO.warning()}", file=sys.stderr, flush=True)
 
 def sso_redirect_uri():
     return SSO.redirect_uri or url_for("sso_callback", _external=True)
@@ -402,6 +423,7 @@ def sso_callback():
     back = "account" if linking else "login"
     try: claims = oidc.finish(SSO, saved, request.args)
     except oidc.Error as e: return sso_fail(e, back)
+    if SSO.insecure: print(f"[sso] WARNING: sign-in for sub {claims.get('sub')!r} arrived over plain http (OIDC_ALLOW_HTTP)", file=sys.stderr, flush=True)
     iss, sub = SSO.issuer, claims["sub"]
     label = str(claims.get("email") or claims.get("preferred_username") or claims.get("name") or "")[:120]
     known = db().execute("SELECT i.user_id, u.* FROM user_identities i JOIN users u ON u.id=i.user_id WHERE i.issuer=? AND i.subject=?",
@@ -458,7 +480,7 @@ def admin():
     snaps = sorted(P.backups.glob("auto-*")) if P.backups.exists() else []
     last = datetime.fromtimestamp(snaps[-1].stat().st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if snaps else None
     return render_template("admin.html", users=users, signups=signups_open(), quota=QUOTA, cur=currency(), snaps=len(snaps), last_snap=local_time(last) if last else None,
-                           storage=P.report())
+                           storage=P.report(), sso_warning=SSO.warning())
 
 @app.post("/admin/users")
 def admin_create():
@@ -1331,7 +1353,10 @@ def upload(id):
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if ext not in ALLOWED:
         flash("File type not allowed.")
+    elif not content_ok(ext, f.stream.read(2048)):
+        flash(f"That file doesn't look like a real .{ext} file, so it wasn't added.")
     else:
+        f.stream.seek(0)
         stored = f"{uuid.uuid4().hex}.{ext}"
         f.save(UPLOADS / stored)
         size = (UPLOADS / stored).stat().st_size
@@ -1344,7 +1369,15 @@ def upload(id):
 def file(fid):
     f = file_of(fid)
     ext = f["stored"].rsplit(".", 1)[-1]
-    return send_from_directory(UPLOADS, f["stored"], download_name=f["name"], as_attachment=ext not in INLINE)
+    inline = ext in INLINE
+    if inline:      # files added before content checks existed: shown only if they really are what they say
+        with open(UPLOADS / f["stored"], "rb") as fh: inline = content_ok(ext, fh.read(2048))
+    r = send_from_directory(UPLOADS, f["stored"], download_name=f["name"], as_attachment=not inline,
+                            **({} if inline else {"mimetype": "application/octet-stream"}))
+    if ext != "pdf" or not inline: r.headers["Content-Security-Policy"] = FILE_CSP
+    r.headers["X-Frame-Options"] = "SAMEORIGIN"
+    r.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    return r
 
 @app.post("/files/<int:fid>/delete")
 def del_file(fid):

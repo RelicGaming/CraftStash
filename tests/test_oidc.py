@@ -183,3 +183,43 @@ def test_real_client_checks_the_providers_certificate(tmp_path):
         try: assert oidc.http("GET", url) == {"ok": 1}
         finally: os.environ.pop("SSL_CERT_FILE")
     finally: srv.shutdown()
+
+def test_access_token_never_goes_to_a_plain_http_userinfo(sso):
+    env = sso(OIDC_AUTO_PROVISION="1"); env.idp.claims = {"preferred_username": None, "email": None}
+    env.idp.doc["userinfo_endpoint"] = "http://idp.example.com/userinfo"; env.idp.userinfo = {"sub": "user-1", "preferred_username": "zoe"}
+    c = env.client(); sign_in(c, env.idp)
+    assert not any("userinfo" in url for _, url in env.idp.calls)
+    assert "no usable username" in c.html("/login")
+
+def test_username_in_the_id_token_still_works_when_userinfo_is_unusable(sso):
+    env = sso(OIDC_AUTO_PROVISION="1"); env.idp.doc["userinfo_endpoint"] = "http://idp.example.com/userinfo"
+    sign_in(env.client(), env.idp)
+    assert env.db().execute("SELECT username FROM users").fetchall() == [("amy",)]
+
+def test_redirect_from_https_to_http_is_refused():
+    import urllib.error, urllib.request, oidc
+    req = urllib.request.Request("https://idp.example.com/userinfo", headers={"Authorization": "Bearer at"})
+    with pytest.raises(urllib.error.URLError, match="refused redirect"):
+        oidc._NoDowngrade().redirect_request(req, None, 302, "Found", {}, "http://evil.example.com/")
+    assert oidc._NoDowngrade().redirect_request(req, None, 302, "Found", {}, "https://idp.example.com/u2") is not None
+
+def test_allow_http_to_another_machine_is_shouted_about(make_env, monkeypatch, capsys):
+    import oidc
+    http_iss = "http://idp.example.com"
+    p = Provider(); p.doc = {**p.doc, "issuer": http_iss}; monkeypatch.setattr(oidc, "http", p); oidc._discovery.clear()
+    env = make_env(OIDC_ENABLED="1", OIDC_ISSUER=http_iss, OIDC_ALLOW_HTTP="1", OIDC_CLIENT_ID="craft", OIDC_CLIENT_SECRET="s3cret")
+    assert "[sso] WARNING: OIDC_ALLOW_HTTP is on" in capsys.readouterr().err
+    c = env.client(); c.register("admin")
+    assert "Single sign-on is not secure" in c.html("/admin")
+
+def test_no_warning_for_https_or_a_provider_on_the_same_machine(make_env, sso, capsys):
+    env = sso(); c = env.client(); c.register("admin")
+    assert "not secure" not in c.html("/admin") and "WARNING" not in capsys.readouterr().err
+    import oidc
+    monkeypatch_env = {"OIDC_ENABLED": "1", "OIDC_ISSUER": "http://localhost:8080"}
+    import os; old = {k: os.environ.get(k) for k in monkeypatch_env}; os.environ.update(monkeypatch_env)
+    try: assert oidc.Config().insecure is False
+    finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
