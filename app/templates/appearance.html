@@ -16,14 +16,14 @@
 <div id="custom-preview">{{ preview(cu.bg, cu.surface, cu.ink, cu.accent, '#ffffff') }}</div><span>Custom</span></label>
 </div></section>
 
-<section class="panel" id="custom"><div class="panel-head"><div><h2>Custom colours</h2><p class="muted small" style="margin:2px 0 0">Pick a theme above to start from its colours, then tweak. Changing any colour switches you to Custom.</p></div></div>
+<section class="panel" id="custom"><div class="panel-head"><div><h2>Custom colours</h2><p class="muted small m-hint">Pick a theme above to start from its colours, then tweak. Changing any colour switches you to Custom.</p></div></div>
 <div class="form-grid">
 <label class="field"><span>Background</span><input type="color" name="bg" value="{{ cu.bg }}"></label>
 <label class="field"><span>Cards and panels</span><input type="color" name="surface" value="{{ cu.surface }}"></label>
 <label class="field"><span>Text</span><input type="color" name="ink" value="{{ cu.ink }}"></label>
 <label class="field"><span>Accent (buttons, links)</span><input type="color" name="accent" value="{{ cu.accent }}"></label>
 <label class="field"><span>Style</span><select name="mode"><option value="light" {{ 'selected' if cu.mode == 'light' }}>Light colours</option><option value="dark" {{ 'selected' if cu.mode == 'dark' }}>Dark colours</option></select></label></div>
-<p class="small muted" id="contrast" style="margin-top:12px"></p></section>
+<p class="small muted mt-12" id="contrast"></p></section>
 
 <section class="panel"><div class="panel-head"><h2>Corners</h2></div>
 <div class="theme-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));max-width:420px">

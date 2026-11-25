@@ -30,4 +30,4 @@ def test_in_app_page_is_admin_only_and_runs_live(make_env):
     assert d["state"] == "done" and kinds[0] == "start" and kinds[-1] == "done" and "check" in kinds and "perf" in kinds, kinds[-5:]
     assert seen[-1]["summary"]["failed"] == 0, [x for x in seen if x.get("status") in ("fail", "error")]
     assert "Craft Stash self-test" in amy.html("/admin/selftest/report") and amy.get("/admin/selftest/report?format=json").status_code == 200
-    assert e.mod.SELFTEST["state"] == "done"
+    assert e.admin.SELFTEST["state"] == "done"

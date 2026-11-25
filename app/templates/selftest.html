@@ -7,7 +7,7 @@
 <form method="post" action="{{ url_for('selftest_run') }}">{{ csrf }}<button class="btn" id="run">Run self-test</button></form></div></div>
 <p class="muted" style="margin-top:-8px">Starts a temporary copy of the app with its own empty database, signs up test users and drives every feature through the website, then times the main pages. It takes under a minute and uses a little extra memory while it runs. Your real data is never touched.</p>
 <section class="panel" id="status-panel" data-status="{{ url_for('selftest_status') }}" hidden><div class="panel-head" style="margin-bottom:8px"><h2 id="headline">Running…</h2><span class="muted small" id="counter"></span></div>
-<progress id="bar" value="0" max="1" style="width:100%"></progress><div class="tile-meta" id="summary" style="margin-top:12px"></div></section>
+<progress id="bar" value="0" max="1" style="width:100%"></progress><div class="tile-meta mt-12" id="summary"></div></section>
 <section class="panel" id="features-panel" hidden><div class="panel-head"><h2>Features</h2></div><div class="scroll"><table><thead><tr><th>Result<th>Area<th>Check<th>Time<th>Requests<th>Slowest request</tr></thead><tbody id="rows"></tbody></table></div></section>
 <section class="panel" id="perf-panel" hidden><div class="panel-head"><h2>Page load times</h2><span class="muted small">server response, cold first load then median</span></div><div class="scroll"><table><thead><tr><th>Page<th>Cold<th>Median<th>95th<th>First byte<th>Size</tr></thead><tbody id="perf"></tbody></table></div></section>
 {% endblock %}

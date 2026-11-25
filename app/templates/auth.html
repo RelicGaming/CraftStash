@@ -9,5 +9,5 @@
 <button class="btn block">{{ 'Log in' if mode == 'login' else 'Create account' }}</button>
 {% if sso and sso.enabled %}<div class="or"><span>or</span></div>
 <a class="btn secondary block" href="{{ url_for('sso_login') }}">Log in with {{ sso.name }}</a>{% endif %}
-<p class="muted small" style="margin-top:14px">{% if mode == 'login' %}{% if first_run and not can_register %}No accounts yet and sign-up is off. Create the first admin with <code>python manage.py create-user --admin &lt;name&gt;</code>.{% elif can_register %}New here? <a href="{{ url_for('register') }}">Create an account</a>{% endif %}{% else %}Already have an account? <a href="{{ url_for('login') }}">Log in</a>{% endif %}</p></div></form></div>
+<p class="muted small mt-14">{% if mode == 'login' %}{% if first_run and not can_register %}No accounts yet and sign-up is off. Create the first admin with <code>python manage.py create-user --admin &lt;name&gt;</code>.{% elif can_register %}New here? <a href="{{ url_for('register') }}">Create an account</a>{% endif %}{% else %}Already have an account? <a href="{{ url_for('login') }}">Log in</a>{% endif %}</p></div></form></div>
 {% endblock %}

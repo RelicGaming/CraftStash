@@ -61,7 +61,7 @@ def make_env(tmp_path, monkeypatch):
         if "TMPDIR" in os.environ: monkeypatch.setenv("TMPDIR", os.environ["TMPDIR"])
         else: monkeypatch.delenv("TMPDIR", raising=False)
         for k, v in env.items(): monkeypatch.setenv(k, str(v))
-        for m in ("app", "importer", "backup", "migrations", "manage", "dump"): sys.modules.pop(m, None)   # fresh app and database per test
+        for m in ("app", "core", "auth", "admin", "items", "pools", "projects", "api", "importer", "backup", "migrations", "manage", "dump"): sys.modules.pop(m, None)   # fresh app and database per test
         mod = importlib.import_module("app")
         import dbx
         def db():       # the app's database, rows as plain tuples (as tests compare them)
@@ -70,7 +70,7 @@ def make_env(tmp_path, monkeypatch):
             elif c.engine == "mysql": c.raw.autocommit(True)  # a test's reads must not hold locks the app then waits on
             else: c.raw.autocommit = True
             return c
-        return types.SimpleNamespace(mod=mod, data=tmp_path, client=lambda: C(mod.app), db=db)
+        return types.SimpleNamespace(mod=mod, core=sys.modules["core"], admin=sys.modules["admin"], data=tmp_path, client=lambda: C(mod.app), db=db)
     return make
 
 @pytest.fixture
