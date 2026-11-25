@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% block title %}{{ p.name }} - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('tools') }}"><svg class="i"><use href="#i-chev-l"/></svg>Tools</a>
+<div class="page-head"><h1>{{ p.name }}</h1><span class="pill">{{ craft.label }}</span><span class="grow"></span>
+<div class="actions"><a class="btn" href="{{ url_for('pattern_pdf', id=p.id) }}" target="_blank" rel="noopener"><svg class="i"><use href="#i-print"/></svg>PDF to print</a>
+<details class="menu"><summary class="btn secondary" aria-label="More pattern actions"><svg class="i"><use href="#i-more"/></svg>More</summary><div class="menu-list" role="menu">
+<a role="menuitem" href="{{ url_for('pattern_png', id=p.id, style=style, download=1) }}">Download the chart (PNG)</a>
+<a role="menuitem" href="{{ url_for('pattern_source', id=p.id) }}" target="_blank" rel="noopener">Original picture</a>
+<form method="post" action="{{ url_for('pattern_delete', id=p.id) }}" data-confirm="Delete this pattern?">{{ csrf }}<button role="menuitem" class="danger-text">Delete pattern</button></form>
+</div></details></div></div>
+<div class="cols pattern-cols"><div>
+<section class="panel"><div class="panel-head"><h2>Chart</h2><span class="muted small">{{ chart.w }} x {{ chart.h }}, {{ rows|length }} colours, {{ '{:,}'.format(total) }} {{ craft.cells }}</span></div>
+{% for ln in lines %}<p class="small m0{{ ' muted' if not loop.first }}">{{ ln }}</p>{% endfor %}
+<div class="inline mt-12 chart-tools"><div class="chips" role="group" aria-label="Show">{% for k, v in (('both', 'Colours and symbols'), ('colour', 'Colours'), ('symbols', 'Symbols')) %}<a class="chip pick-link{{ ' on' if style == k }}" href="{{ url_for('pattern', id=p.id, style=k) }}">{{ v }}</a>{% endfor %}</div>
+<span class="grow"></span><button type="button" class="btn secondary sm" data-zoom="-1" aria-label="Zoom out">-</button><button type="button" class="btn secondary sm" data-zoom="0">Fit</button><button type="button" class="btn secondary sm" data-zoom="1" aria-label="Zoom in">+</button></div>
+<div class="chart-view mt-8" data-chart-view><img src="{{ url_for('pattern_png', id=p.id, style=style) }}" alt="The chart for {{ p.name }}"></div>
+</section>
+<section class="panel"><div class="panel-head"><h2>Colours</h2><span class="muted small">Compared with your free stock now</span></div>
+<div class="table-wrap"><table class="legend"><thead><tr><th>Key</th><th>Colour</th><th class="num">{{ craft.cells|capitalize }}</th><th>Needed</th><th>In your stash</th></tr></thead><tbody>
+{% for r in rows %}<tr><td><span class="key" style="--c:{{ r.hex }};--k:{{ r.ink }}">{{ r.symbol }}</span></td>
+<td><strong>{{ r.label }}</strong> <span class="muted small">{{ r.hex }}</span></td><td class="num" data-unit="{{ craft.cells }}">{{ "{:,}".format(r.count) }}</td><td>{{ r|amount }}</td>
+<td>{% if r.item %}<a href="{{ url_for('item_edit', iid=r.item.id) }}">{{ r.item.name }}{% if r.item.colour %} ({{ r.item.colour }}){% endif %}</a>{% if r.match == 'close' %} <span class="pill" title="Colour difference {{ r.de }}">close match</span>{% endif %}
+<div class="small">{% if r.status == 'have' %}<span class="pill ok">Have it</span> {{ '%g'|format(r.item.free) }} {{ r.item.unit }} free{% elif r.status == 'short' %}<span class="pill bad">Short by {{ short_text(r) }}</span>{% else %}<span class="pill warn">Check: stock is in {{ r.item.unit }}</span>{% endif %}</div>
+{% if r.shared %} <span class="muted">(shared with another colour)</span>{% endif %}
+{% else %}<span class="pill warn">Need to buy</span> <span class="small">{{ to_buy(r) }}</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
+</section>
+</div><div>
+<section class="panel"><div class="panel-head"><h2>Project</h2></div>
+{% if project %}<p class="m0">On <a href="{{ url_for('project', id=project.id) }}">{{ project.name }}</a>, with the chart PDF attached.</p>
+<form class="mt-12" method="post" action="{{ url_for('pattern_project', id=p.id) }}" data-busy>{{ csrf }}<button class="btn secondary">Update the chart on the project</button></form>
+{% else %}<p class="muted small m0">Makes a planned project with the chart PDF attached. Colours you have are reserved as its materials, so anything short lands on the shopping list.</p>
+<form class="mt-12" method="post" action="{{ url_for('pattern_project', id=p.id) }}" data-busy>{{ csrf }}
+<label class="inline flex-none small"><input type="hidden" name="wishes" value="0"><input type="checkbox" name="wishes" value="1" checked> Put colours I don't have on the wishlist</label>
+<div class="form-actions"><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Make a project</button></div></form>{% endif %}
+</section>
+<form class="panel" method="post" action="{{ url_for('pattern_update', id=p.id) }}" enctype="multipart/form-data" data-busy>{{ csrf }}<div class="panel-head"><h2>Settings</h2></div>
+<div class="form-grid"><label class="field wide"><span>Name</span><input name="name" value="{{ p.name }}" maxlength="100"></label>
+<div class="field wide"><span>Picture</span><div class="photo-pick"><img class="photo-preview" src="{{ url_for('pattern_source', id=p.id) }}" alt="">
+<div class="photo-pick-body"><input type="file" name="photo" accept="image/*" aria-label="Use a different picture"><p class="muted small m0">Choose a file only to use a different picture.</p></div></div></div></div>
+{% include "pattern_settings.html" %}
+<div class="form-actions"><button class="btn">Make it again</button></div></form>
+</div></div>
+{% endblock %}

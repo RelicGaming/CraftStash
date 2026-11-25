@@ -237,6 +237,16 @@ PROJECT_PHOTO_SCOPES = MappingProxyType({"user": "user_id=?", "project": "id=?"}
 def purge_project_photos(scope, id):   # a project's cover picture
     for r in q("SELECT photo FROM projects WHERE photo<>'' AND " + PROJECT_PHOTO_SCOPES[scope], id): (PHOTOS / r["photo"]).unlink(missing_ok=True)
 
+PATTERN_CACHE = P.tmp / "patterns"   # drawn charts; made again whenever they're missing
+
+def drop_pattern_cache(pattern_id):
+    for f in PATTERN_CACHE.glob(f"{int(pattern_id)}-*.png"): f.unlink(missing_ok=True)
+
+def purge_pattern_files(user_id):  # before an account goes: its patterns' source pictures and drawn charts
+    for r in q("SELECT id, photo FROM patterns WHERE user_id=?", user_id):
+        if r["photo"]: (PHOTOS / r["photo"]).unlink(missing_ok=True)
+        drop_pattern_cache(r["id"])
+
 def purge_wish_photos(user_id):    # before an account goes: its wishes go with it (ON DELETE CASCADE)
     for r in q("SELECT photo FROM wishes WHERE user_id=? AND photo<>''", user_id): (PHOTOS / r["photo"]).unlink(missing_ok=True)
 

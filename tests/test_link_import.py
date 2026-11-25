@@ -325,7 +325,7 @@ def test_an_older_sqlite_database_gets_the_columns(make_env, tmp_path):
     d.execute("ALTER TABLE projects DROP COLUMN photo"); d.execute("ALTER TABLE projects DROP COLUMN source"); d.execute("PRAGMA user_version=9"); d.commit(); d.close()
     make_env(); d = sqlite3.connect(tmp_path / "craft.db")
     assert d.execute("SELECT name, photo, source FROM projects").fetchall() == [("Hat", "", "")]
-    assert d.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert d.execute("PRAGMA user_version").fetchone()[0] >= 10
 
 @pytest.mark.skipif(not TEST_DB, reason="needs a server database")
 def test_a_server_database_without_the_columns_gets_them(make_env):

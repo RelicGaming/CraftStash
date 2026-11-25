@@ -50,7 +50,11 @@ def m_link_import(c):   # v10: a project's cover picture and the link it was imp
     add_col(c, "projects", "photo", "TEXT NOT NULL DEFAULT ''")
     add_col(c, "projects", "source", "TEXT NOT NULL DEFAULT ''")
 
-STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations, m_project_dates, m_wishlist, m_link_import]
+def m_patterns(c):   # v11: patterns is a new table, so the schema script makes it on every engine (the step takes the backup)
+    """Nothing to change in existing rows."""
+
+STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations, m_project_dates, m_wishlist, m_link_import,
+         m_patterns]
 
 def statements(script):
     """Split a SQL script into single statements, so it can run inside one transaction (executescript would commit)."""

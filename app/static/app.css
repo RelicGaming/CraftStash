@@ -306,3 +306,26 @@ summary.who.current .avatar{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--
 .source{overflow-wrap:anywhere}
 
 .pill.idea{background:transparent;box-shadow:inset 0 0 0 1px var(--stitch);color:var(--muted)}
+/* the pixel pattern maker */
+.table-wrap{overflow-x:auto;margin:0 -4px}
+.legend td,.legend th{padding:8px 6px;vertical-align:middle}.legend .num{text-align:right;white-space:nowrap}
+.key{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:6px;background:var(--c);color:var(--k);font-weight:700;border:1px solid var(--line)}
+.chart-view{overflow:auto;max-height:75vh;border:1px solid var(--line);border-radius:10px;background:#fff;touch-action:pan-x pan-y pinch-zoom}
+.chart-view img{display:block;width:100%;max-width:none;height:auto;image-rendering:pixelated}
+.chart-tools{flex-wrap:wrap;gap:8px}
+.chip.pick-link{padding:4px 10px;border-radius:6px}.chip.pick-link:hover{text-decoration:none;border-color:var(--accent)}
+.chip.pick-link.on{background:var(--accent-soft);color:var(--accent);font-weight:620;border-color:transparent}
+.craft-fields{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0;min-width:0}
+.craft-fields legend{padding:0 6px;font-weight:620;font-size:.85rem;color:var(--muted)}
+.craft-fields[hidden]{display:none}
+.pattern-thumb{image-rendering:pixelated;object-fit:contain;background:#fff}
+@media(min-width:900px){.pattern-cols{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}}
+@media(max-width:600px){
+  .legend thead{display:none}.table-wrap{overflow:visible;margin:0}
+  .legend tr{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:4px 10px;padding:12px 0;border-top:1px solid var(--line)}
+  .legend tr:first-child{border-top:0}
+  .legend td{border:0;padding:0}
+  .legend td:nth-child(1){grid-row:1/4}.legend td:nth-child(2){grid-column:2/4}
+  .legend td:nth-child(3){grid-column:3;grid-row:2;color:var(--muted)}.legend td:nth-child(3)::after{content:" " attr(data-unit)}
+  .legend td:nth-child(4){grid-column:2;grid-row:2}.legend td:nth-child(5){grid-column:2/4;grid-row:3}
+}

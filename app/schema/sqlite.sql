@@ -59,3 +59,7 @@ CREATE INDEX IF NOT EXISTS ix_wishes_item ON wishes(item_id);
 CREATE INDEX IF NOT EXISTS ix_wishes_project ON wishes(project_id);
 CREATE TABLE IF NOT EXISTS wish_sightings(id INTEGER PRIMARY KEY, wish_id INTEGER NOT NULL REFERENCES wishes ON DELETE CASCADE, shop TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', price REAL, seen TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS ix_wish_sightings_wish ON wish_sightings(wish_id);
+-- Saved pixel patterns: the source picture (in the photos folder), the settings and the chart they made.
+CREATE TABLE IF NOT EXISTS patterns(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users ON DELETE CASCADE, name TEXT NOT NULL, photo TEXT NOT NULL DEFAULT '', settings TEXT NOT NULL DEFAULT '{}', chart TEXT NOT NULL DEFAULT '', project_id INTEGER REFERENCES projects ON DELETE SET NULL, file_id INTEGER REFERENCES files ON DELETE SET NULL, created TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS ix_patterns_user ON patterns(user_id);
+CREATE INDEX IF NOT EXISTS ix_patterns_project ON patterns(project_id);

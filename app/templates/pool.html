@@ -8,6 +8,7 @@
 <details class="menu"><summary class="btn secondary sm" aria-label="More collection actions"><svg class="i"><use href="#i-more"/></svg>More</summary><div class="menu-list" role="menu">
 {% if pool.can_edit %}<a role="menuitem" href="{{ url_for('import_csv', pid=pool.id) }}">Import from CSV</a>{% endif %}
 <a role="menuitem" href="{{ url_for('export_csv', pid=pool.id) }}">Export to CSV</a>
+{% for t in tools_for(pool) %}<a role="menuitem" href="{{ url_for(t.endpoint, palette='pool:' ~ pool.id, check='pool:' ~ pool.id) }}">{{ t.name }} with these colours</a>{% endfor %}
 {% if pool.is_owner %}<a role="menuitem" href="#settings">Collection settings and sharing</a>{% endif %}
 {% if not pool.is_owner %}<form method="post" action="{{ url_for('leave_pool', pid=pool.id) }}" data-confirm="Leave this collection? Your reservations from it will be removed.">{{ csrf }}<button role="menuitem" class="danger-text">Leave collection</button></form>{% endif %}
 </div></details></div></div>

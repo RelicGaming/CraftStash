@@ -7,6 +7,7 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 <symbol id="i-logo" viewBox="0 0 24 24"><path d="M5 4h14M5 20h14M8 4v16M12 4v16M16 4v16"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
 <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
 <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
@@ -19,13 +20,14 @@
 <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".6"/><circle cx="17.5" cy="10.5" r=".6"/><circle cx="8.5" cy="7.5" r=".6"/><circle cx="6.5" cy="12.5" r=".6"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.83-.44-1.12-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.55-2.5 5.55-5.55C21.97 6.01 17.46 2 12 2Z"/></symbol>
 </defs></svg>
 {% if g.user %}{% set ep = request.endpoint or '' %}
-{% set section = 'collections' if ep in ('home','pool','item_new','item_edit','type_fields','activity','import_csv') else 'projects' if ep in ('projects','project','finish') else 'shopping' if ep in ('shopping','wishlist','wish_new','wish','wish_edit') else ep if ep == 'search' else 'me' if ep in ('account','appearance','admin','selftest_page') else '' %}
+{% set section = 'collections' if ep in ('home','pool','item_new','item_edit','type_fields','activity','import_csv') else 'projects' if ep in ('projects','project','finish') else 'shopping' if ep in ('shopping','wishlist','wish_new','wish','wish_edit') else 'tools' if ep in ('tools','pattern_new','pattern') else ep if ep == 'search' else 'me' if ep in ('account','appearance','admin','selftest_page') else '' %}
 <header class="top"><div class="top-in">
 <a class="brand" href="{{ url_for('home') }}" aria-label="Craft Stash home"><span class="logo"><svg class="i"><use href="#i-logo"/></svg></span><span class="brand-text">Craft Stash</span></a>
 <nav class="tabs" aria-label="Main">
 <a href="{{ url_for('home') }}" {% if section == 'collections' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-box"/></svg><span>Collections</span></a>
 <a href="{{ url_for('projects') }}" {% if section == 'projects' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-file"/></svg><span>Projects</span></a>
 <a href="{{ url_for('shopping') }}" {% if section == 'shopping' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-cart"/></svg><span>Shopping</span>{% if shop_count %}<span class="pill warn count" aria-label="{{ shop_count }} to buy">{{ shop_count }}</span>{% endif %}</a>
+<a href="{{ url_for('tools') }}" {% if section == 'tools' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-grid"/></svg><span>Tools</span></a>
 <a href="{{ url_for('search') }}" {% if section == 'search' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-search"/></svg><span>Search</span></a></nav>
 <details class="menu me"><summary class="who{{ ' current' if section == 'me' }}" aria-label="Account menu"><span class="avatar" style="--h:{{ (g.user.id * 67) % 360 }}">{{ g.user.username[0]|upper }}</span><span class="small hide-m">{{ g.user.username }}</span><svg class="i chev"><use href="#i-chev-d"/></svg></summary>
 <div class="menu-list" role="menu"><div class="menu-who muted small">Signed in as <strong>{{ g.user.username }}</strong></div>
