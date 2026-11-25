@@ -2,7 +2,9 @@
 import core, dbx, shutil, uuid
 from flask import abort, flash, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
-from core import ALLOWED, app, CAN_EDIT, clean, content_ok, db, FILE_CSP, file_of, find_user, get, GROUP_HEX, INLINE, item_of, log, num, PHOTOS, project_of, purge_files, purge_step_photos, q, run, save_photo, step_of, uid, UPLOADS, used_bytes
+from core import (ALLOWED, app, CAN_EDIT, clean, content_ok, db, FILE_CSP, file_of, find_user, get, GROUP_HEX,
+    INLINE, item_of, log, num, PHOTOS, project_of, purge_files, purge_step_photos, q, run, save_photo, step_of,
+    uid, UPLOADS, used_bytes)
 from items import fit_places
 
 # ---------- projects ----------

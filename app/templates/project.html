@@ -25,7 +25,7 @@
 <strong>{{ '%g'|format(a.qty) }} {{ a.unit }}</strong>{% if a.consumed %}{% if a.used %}<span class="pill ok">{% if (a.used - a.qty)|abs > 1e-9 %}Used {{ '%g'|format(a.used) }}{% else %}Used{% endif %}</span>{% else %}<span class="pill">Not deducted</span>{% endif %}{% elif mine and a.free < 0 and p.status != 'template' %}<span class="pill bad">Short by {{ '%g'|format(-a.free) }}</span>{% endif %}
 {% if mine and not a.consumed %}<form class="noprint" method="post" action="{{ url_for('unassign', aid=a.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form>{% endif %}</div>
 {% else %}<p class="muted">{{ 'Nothing assigned yet. Pick supplies below.' if mine else 'No materials listed.' }}</p>{% endfor %}
-{% if mine and p.status != 'done' %}<form class="inline noprint" style="margin-top:14px" method="post" action="{{ url_for('assign', id=p.id) }}">{{ csrf }}
+{% if mine and p.status != 'done' %}<form class="inline noprint mt-14" method="post" action="{{ url_for('assign', id=p.id) }}">{{ csrf }}
 <select name="item_id" required aria-label="Item" style="flex:3 1 240px"><option value="">Choose a supply</option>
 {% for s in avail %}<option value="{{ s.id }}">{{ s.pname }} / {{ s.tname }}: {{ s.name }} {{ s.colour }} ({{ '%g'|format(s.free) }} {{ s.unit }} free)</option>{% endfor %}</select>
 <input name="qty" type="number" step="any" min="0" placeholder="Amount" required aria-label="Amount" style="flex:1 1 90px"><button class="btn">Assign</button></form>{% endif %}</section>
@@ -37,8 +37,8 @@
 <form method="post" action="{{ url_for('update_step', sid=s.id) }}">{{ csrf }}<input name="title" value="{{ s.title }}" maxlength="100" placeholder="Title" aria-label="Title"><textarea name="body" rows="3" maxlength="3000" aria-label="Instructions">{{ s.body }}</textarea>
 <div class="actions"><button class="btn sm">Save step</button></div></form>
 {% if sp %}<div class="step-photos edit-photos">{% for ph in sp %}<form method="post" action="{{ url_for('step_photo_delete', pid=ph.id) }}" data-confirm="Remove this photo?">{{ csrf }}<img src="{{ url_for('step_photo', pid=ph.id) }}" alt="" loading="lazy"><button class="btn ghost danger sm">Remove</button></form>{% endfor %}</div>{% endif %}
-{% if sp|length < max_photos %}<form class="inline" method="post" action="{{ url_for('step_photos_add', sid=s.id) }}" enctype="multipart/form-data" style="margin-top:8px">{{ csrf }}<input type="file" name="photos" accept="image/*" multiple aria-label="Add photos to this step"><button class="btn secondary sm">Add photos</button></form>{% endif %}
-<div class="actions" style="margin-top:8px"><form method="post" action="{{ url_for('move_step', sid=s.id) }}">{{ csrf }}<input type="hidden" name="dir" value="up"><button class="btn secondary sm">Move up</button></form>
+{% if sp|length < max_photos %}<form class="inline mt-8" method="post" action="{{ url_for('step_photos_add', sid=s.id) }}" enctype="multipart/form-data">{{ csrf }}<input type="file" name="photos" accept="image/*" multiple aria-label="Add photos to this step"><button class="btn secondary sm">Add photos</button></form>{% endif %}
+<div class="actions mt-8"><form method="post" action="{{ url_for('move_step', sid=s.id) }}">{{ csrf }}<input type="hidden" name="dir" value="up"><button class="btn secondary sm">Move up</button></form>
 <form method="post" action="{{ url_for('move_step', sid=s.id) }}">{{ csrf }}<input type="hidden" name="dir" value="down"><button class="btn secondary sm">Move down</button></form>
 <form method="post" action="{{ url_for('delete_step', sid=s.id) }}" data-confirm="Delete this step?">{{ csrf }}<button class="btn ghost danger sm">Delete</button></form></div></details>{% endif %}</div></li>{% endfor %}</ol>
 {% elif not mine %}<p class="muted">No steps written yet.</p>{% endif %}
@@ -64,7 +64,7 @@
 {% for s in shares %}<div class="list-row"><span class="avatar" style="--h:{{ (s.id * 67) % 360 }}">{{ s.username[0]|upper }}</span><span class="grow">{{ s.username }}</span>
 <form method="post" action="{{ url_for('unshare_project', id=p.id, user=s.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form></div>
 {% else %}<p class="muted small">Not shared. People you add see materials, steps and files, but not your stock.</p>{% endfor %}
-<form class="inline" style="margin-top:12px" method="post" action="{{ url_for('share_project', id=p.id) }}">{{ csrf }}<input name="username" placeholder="Username" required aria-label="Username"><button class="btn secondary">Share</button></form></section>
+<form class="inline mt-12" method="post" action="{{ url_for('share_project', id=p.id) }}">{{ csrf }}<input name="username" placeholder="Username" required aria-label="Username"><button class="btn secondary">Share</button></form></section>
 <form class="noprint" method="post" action="{{ url_for('del_project', id=p.id) }}" data-confirm="Delete this project and its files?">{{ csrf }}<button class="btn ghost danger">Delete project</button></form>{% endif %}
 </div></div>
 {% endblock %}

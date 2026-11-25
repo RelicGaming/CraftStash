@@ -2,7 +2,8 @@
 import dbx, oidc, secrets, sys
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
-from core import app, clean, db, FAILS, pwv, record_fail, run, signups_open, SSO, throttled, uid, valid_account
+from core import (app, clean, db, FAILS, pwv, record_fail, run, signups_open, SSO, throttled, uid,
+    valid_account)
 
 # ---------- auth ----------
 def no_users(): return db().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0

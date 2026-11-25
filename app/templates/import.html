@@ -14,6 +14,6 @@
 <label class="field"><span>If a row already exists (same type, name and colour)</span><select name="mode"><option value="update">Update it</option><option value="add">Add it again as a new item</option></select></label>
 <label class="field"><span>Material type for rows without one</span><input name="default_type" list="types" placeholder="Imported" maxlength="60"></label></div>
 <datalist id="types">{% for t in types %}<option value="{{ t.name }}">{% endfor %}</datalist>
-<label class="inline" style="margin-top:14px"><input type="checkbox" name="dry" checked>Check only, don't import yet</label>
+<label class="inline mt-14"><input type="checkbox" name="dry" checked>Check only, don't import yet</label>
 <div class="form-actions"><button class="btn">Run</button><a class="btn secondary" href="{{ url_for('pool', pid=pool.id) }}">Cancel</a></div></form>
 {% endblock %}

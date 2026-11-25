@@ -7,19 +7,19 @@
 <label class="field wide"><span>Repeat new password</span><input name="confirm" type="password" minlength="8" required autocomplete="new-password"></label></div>
 <div class="form-actions"><button class="btn">Update password</button></div></form>
 {% if sso.enabled or identities %}<section class="panel" style="max-width:720px" id="sso"><div class="panel-head"><div><h2>Single sign-on</h2>
-<p class="muted small" style="margin:2px 0 0">Log in with {{ sso.name }} instead of a password.</p></div>
+<p class="muted small m-hint">Log in with {{ sso.name }} instead of a password.</p></div>
 {% if sso.enabled %}<form method="post" action="{{ url_for('sso_link') }}">{{ csrf }}<button class="btn secondary">Link {{ sso.name }}</button></form>{% endif %}</div>
 {% if identities %}<ul class="plain-list">{% for i in identities %}<li class="inline" style="justify-content:space-between"><span>{{ i.label or 'Linked account' }} <span class="muted small">since {{ when(i.created) }}</span></span>
 <form method="post" action="{{ url_for('sso_unlink', iid=i.id) }}">{{ csrf }}<button class="btn ghost danger sm">Unlink</button></form></li>{% endfor %}</ul>
-{% else %}<p class="muted small" style="margin:0">Not linked yet.</p>{% endif %}</section>{% endif %}
+{% else %}<p class="muted small m0">Not linked yet.</p>{% endif %}</section>{% endif %}
 <section class="panel" style="max-width:720px" id="api"><div class="panel-head"><div><h2>API tokens</h2>
-<p class="muted small" style="margin:2px 0 0">Let Home Assistant or a script read your shopping list, stock and projects, and record stock you use or buy. A token sees exactly what you see. Revoke it here if a device is lost. Changing your password doesn't revoke tokens.</p></div></div>
+<p class="muted small m-hint">Let Home Assistant or a script read your shopping list, stock and projects, and record stock you use or buy. A token sees exactly what you see. Revoke it here if a device is lost. Changing your password doesn't revoke tokens.</p></div></div>
 {% if new_token %}<div class="notice" role="status"><svg class="i"><use href="#i-info"/></svg><div class="grow" style="min-width:0"><strong>{{ new_name }} is ready.</strong> Copy the token now. It won't be shown again.
-<div class="inline" style="margin-top:8px"><input class="token-out" value="{{ new_token }}" readonly aria-label="New API token" data-select-all><button type="button" class="btn secondary sm" data-copy-token>Copy</button></div></div></div>{% endif %}
+<div class="inline mt-8"><input class="token-out" value="{{ new_token }}" readonly aria-label="New API token" data-select-all><button type="button" class="btn secondary sm" data-copy-token>Copy</button></div></div></div>{% endif %}
 {% for t in tokens %}<div class="list-row"><span class="grow"><strong>{{ t.name }}</strong><br><span class="muted small">{{ 'Read and write' if t.can_write else 'Read only' }} · made {{ when(t.created) }} · {{ ('last used ' ~ when(t.last_used)) if t.last_used else 'never used' }}</span></span>
 <form method="post" action="{{ url_for('del_token', tid=t.id) }}" data-confirm="Revoke {{ t.name }}? Anything using it stops working.">{{ csrf }}<button class="btn ghost danger sm">Revoke</button></form></div>
 {% else %}<p class="muted">No tokens yet.</p>{% endfor %}
-<form class="inline" style="margin-top:14px" method="post" action="{{ url_for('new_token') }}">{{ csrf }}<input name="name" maxlength="60" placeholder="Name, like Home Assistant" aria-label="Token name">
+<form class="inline mt-14" method="post" action="{{ url_for('new_token') }}">{{ csrf }}<input name="name" maxlength="60" placeholder="Name, like Home Assistant" aria-label="Token name">
 <select name="access" aria-label="Access" style="flex:none;width:auto"><option value="read">Read only</option><option value="write">Read and write</option></select><button class="btn secondary">Create token</button></form>
 <p class="muted small" style="margin:12px 0 0">Send it as <code>Authorization: Bearer &lt;token&gt;</code> to <code>{{ api_base }}</code>. The README has Home Assistant examples.</p></section>
 {% endblock %}

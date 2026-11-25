@@ -1,10 +1,12 @@
 """Admin page, backups, and the in-app self-test."""
 import backup, core, dbx, json, os, subprocess, sys, tempfile, threading
 from datetime import datetime, timezone
-from flask import abort, after_this_request, flash, g, redirect, render_template, request, send_file, session, url_for
+from flask import (abort, after_this_request, flash, g, redirect, render_template, request, send_file, session,
+    url_for)
 from pathlib import Path
 from werkzeug.security import generate_password_hash
-from core import app, clean, currency, get, local_time, P, purge_files, purge_photos, purge_step_photos, pwv, q, run, signups_open, SSO, uid, valid_account
+from core import (app, clean, currency, get, local_time, P, purge_files, purge_photos, purge_step_photos, pwv,
+    q, run, signups_open, SSO, uid, valid_account)
 
 # ---------- admin ----------
 def admin_only():

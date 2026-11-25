@@ -1,8 +1,10 @@
 """Items, photos, stock, the shopping list and search."""
 import dbx, json, math, re, secrets, themes
-from flask import abort, flash, g, make_response, redirect, render_template, request, send_from_directory, session, url_for
+from flask import (abort, flash, g, make_response, redirect, render_template, request, send_from_directory,
+    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
-from core import API_PREFIX, app, clean, db, DB, item_of, local_time, log, LOW, num, PHOTOS, purge_photos, pwv, q, run, save_photo, SSO, token_hash, type_of, uid
+from core import (API_PREFIX, app, clean, db, DB, item_of, local_time, log, LOW, num, PHOTOS, purge_photos,
+    pwv, q, run, save_photo, SSO, token_hash, type_of, uid)
 
 # ---------- items ----------
 def save_item(t, item_id=None):

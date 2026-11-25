@@ -2,7 +2,8 @@
 import csv, dbx, importer, io, json, re, secrets
 from flask import abort, flash, redirect, render_template, request, Response, url_for
 from types import MappingProxyType
-from core import app, clean, db, drop_reservations, find_user, get, GROUP_HEX, LIKE, like, log, pool_impact, pool_of, purge_photos, q, run, type_impact, type_of, uid
+from core import (app, clean, db, drop_reservations, find_user, get, GROUP_HEX, LIKE, like, log, pool_impact,
+    pool_of, purge_photos, q, run, type_impact, type_of, uid)
 from items import fit_places
 
 # ---------- pools ----------

@@ -16,7 +16,7 @@
 {% if presets %}<p class="muted small" style="margin:0 0 8px">{{ 'Tap one to start' if first else 'Quick add' }}. Each comes with a unit and useful fields you can change later.</p>
 <div class="presets">{% for k, p in presets %}<button class="btn secondary" name="preset" value="{{ k }}" formnovalidate><svg class="i"><use href="#i-plus"/></svg>{{ p[0] }} <small>{{ p[1] }}</small></button>{% endfor %}</div>
 <p class="muted small" style="margin:16px 0 0"><strong>Or make your own</strong></p>{% endif %}
-<div class="form-grid" style="margin-top:8px"><label class="field"><span>Name</span><input name="name" required maxlength="60" placeholder="Fabric"></label>
+<div class="form-grid mt-8"><label class="field"><span>Name</span><input name="name" required maxlength="60" placeholder="Fabric"></label>
 <label class="field"><span>Unit you count it in</span><input name="unit" maxlength="20" placeholder="pcs" list="units"></label>
 <label class="field wide"><span>Fields (optional, one per line)</span><textarea name="fields" rows="3" placeholder="Width (cm)&#10;Fibre: Cotton, Linen, Wool&#10;Pattern"></textarea>
 <small class="muted">A unit in brackets makes a number field. Options after a colon make a dropdown.</small></label></div>
@@ -66,7 +66,7 @@
 {% else %}<div class="panel stitch"><h3>Nothing here yet</h3><p class="muted">{{ pool.owner }} hasn't added any supplies to this collection.</p></div>{% endif %}{% endfor %}
 
 {% if pool.can_edit and groups %}<details class="panel stitch add-type"><summary><svg class="i"><use href="#i-plus"/></svg><strong>Add another material type</strong></summary>
-<div style="margin-top:12px">{{ type_form(false) }}</div></details>{% endif %}
+<div class="mt-12">{{ type_form(false) }}</div></details>{% endif %}
 
 {% if pool.is_owner %}
 <h2 class="section-title" id="settings">Collection settings</h2>
@@ -77,8 +77,8 @@
 <span class="pill">{{ 'Can edit' if s.can_edit else 'View only' }}</span>
 <form method="post" action="{{ url_for('unshare_pool', pid=pool.id, user=s.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form></div>
 {% else %}<p class="muted">Not shared. Editors can change stock and use it in their own projects.</p>{% endfor %}
-<form class="inline" style="margin-top:14px" method="post" action="{{ url_for('share_pool', pid=pool.id) }}">{{ csrf }}<input name="username" placeholder="Username" required aria-label="Username">
+<form class="inline mt-14" method="post" action="{{ url_for('share_pool', pid=pool.id) }}">{{ csrf }}<input name="username" placeholder="Username" required aria-label="Username">
 <select name="role" aria-label="Access"><option value="view">View only</option><option value="edit">Can edit</option></select><button class="btn secondary">Share</button></form></section>
-<section class="panel danger-zone"><div class="panel-head" style="margin:0"><div><h3>Delete this collection</h3><p class="muted small" style="margin:0">This removes {{ impact['items'] }} {{ 'item' if impact['items'] == 1 else 'items' }}{% if impact.projects %} and takes them out of {{ impact.projects }} {{ 'project' if impact.projects == 1 else 'projects' }}{% endif %}{% if impact.people %}. It also disappears for the {{ impact.people }} {{ 'person' if impact.people == 1 else 'people' }} it is shared with{% endif %}. It cannot be undone, so export a CSV first if unsure.</p></div>
+<section class="panel danger-zone"><div class="panel-head m0"><div><h3>Delete this collection</h3><p class="muted small m0">This removes {{ impact['items'] }} {{ 'item' if impact['items'] == 1 else 'items' }}{% if impact.projects %} and takes them out of {{ impact.projects }} {{ 'project' if impact.projects == 1 else 'projects' }}{% endif %}{% if impact.people %}. It also disappears for the {{ impact.people }} {{ 'person' if impact.people == 1 else 'people' }} it is shared with{% endif %}. It cannot be undone, so export a CSV first if unsure.</p></div>
 <form method="post" action="{{ url_for('del_pool', pid=pool.id) }}" data-confirm="Delete this collection and its {{ impact['items'] }} items{% if impact.projects %}, removing them from {{ impact.projects }} projects{% endif %}? This cannot be undone.">{{ csrf }}<button class="btn danger">Delete collection</button></form></div></section>{% endif %}
 {% endblock %}
