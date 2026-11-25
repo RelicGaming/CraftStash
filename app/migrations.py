@@ -46,7 +46,11 @@ def m_project_dates(c):   # v8: projects get created/updated (project_tags is a 
 def m_wishlist(c):   # v9: wishes and wish_sightings are new tables, so the schema script makes them on every engine.
     """Nothing to change in existing rows. The step marks the version, so an upgrade takes its usual backup first."""
 
-STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations, m_project_dates, m_wishlist]
+def m_link_import(c):   # v10: a project's cover picture and the link it was imported from
+    add_col(c, "projects", "photo", "TEXT NOT NULL DEFAULT ''")
+    add_col(c, "projects", "source", "TEXT NOT NULL DEFAULT ''")
+
+STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations, m_project_dates, m_wishlist, m_link_import]
 
 def statements(script):
     """Split a SQL script into single statements, so it can run inside one transaction (executescript would commit)."""
@@ -90,16 +94,25 @@ def run(path, schema, backups=None):
 
 # Upgrades for server databases, applied after the version their schema file starts at (len(STEPS) today).
 # Each is a function of the dbx connection; add new ones to the end, and the matching change to sqlite.sql's STEPS.
+def server_cols(c, table):
+    return {r[0].lower() for r in c.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name=? AND table_schema=" +
+        ("current_schema()" if c.engine == "postgres" else "DATABASE()"), (table,)).fetchall()}
+
 def s_project_dates(c):   # a fresh server database already has the columns from its schema file, so check first
-    have = {r[0].lower() for r in c.execute(
-        "SELECT column_name FROM information_schema.columns WHERE table_name='projects' AND table_schema=" +
-        ("current_schema()" if c.engine == "postgres" else "DATABASE()")).fetchall()}
+    have = server_cols(c, "projects")
     for col in ("created", "updated"):
         if col not in have:
             c.execute(f"ALTER TABLE projects ADD COLUMN {col} " + ("TEXT" if c.engine == "postgres" else "VARCHAR(19)") + " NOT NULL DEFAULT ''")
     c.execute("UPDATE projects SET created=?, updated=? WHERE created=''", (dbx.now(), dbx.now()))
 
-SERVER_STEPS = [s_project_dates]
+def s_link_import(c):     # projects.photo and projects.source (see m_link_import)
+    have = server_cols(c, "projects")
+    for col in ("photo", "source"):
+        if col not in have:
+            c.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT NOT NULL " + ("DEFAULT ''" if c.engine == "postgres" else "DEFAULT ('')"))
+
+SERVER_STEPS = [s_project_dates, s_link_import]
 
 def schema_file(engine):
     return (Path(__file__).parent / "schema" / f"{engine}.sql").read_text()

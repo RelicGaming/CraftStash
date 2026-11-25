@@ -61,7 +61,7 @@ def make_env(tmp_path, monkeypatch):
         if "TMPDIR" in os.environ: monkeypatch.setenv("TMPDIR", os.environ["TMPDIR"])
         else: monkeypatch.delenv("TMPDIR", raising=False)
         for k, v in env.items(): monkeypatch.setenv(k, str(v))
-        for m in ("app", "core", "auth", "admin", "items", "pools", "projects", "wishlist", "api", "importer", "backup", "migrations", "manage", "dump"): sys.modules.pop(m, None)   # fresh app and database per test
+        for m in ("app", "core", "auth", "admin", "items", "pools", "projects", "wishlist", "linkfetch", "linkimport", "api", "importer", "backup", "migrations", "manage", "dump"): sys.modules.pop(m, None)   # fresh app and database per test
         mod = importlib.import_module("app")
         import dbx
         def db():       # the app's database, rows as plain tuples (as tests compare them)

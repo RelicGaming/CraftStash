@@ -19,6 +19,7 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 - **Shopping list** across every collection you can use: out of stock, low, or short for a project. Enter what you bought (or take the suggested amounts) and restock everything in one go. Assigning more than you have is allowed and the gap lands on the list.
 - **Wishlist** next to the shopping list: snap a photo of something you want, note the shop and price, add more shops to compare, then **Bought it** turns it into stock. See [Wishlist](#wishlist).
 - **Projects**: reserve supplies, **templates** (save a project as a reusable pattern, start new projects from it; templates hold no stock), numbered steps (each with up to 6 photos, counted towards your storage limit), attached guides, estimated cost, print layout, duplicate, complete (enter how much of each material you actually used and only that is deducted, or keep stock untouched) and reopen (puts it back).
+- **Import ideas** from a Pinterest pin, a public Pinterest board or any web page: each becomes an **Idea** project with its picture, or a wishlist item. Share links from your phone straight into Craft Stash. See [Importing ideas from links](#importing-ideas-from-links).
 - **Tags and filters** for projects: tag them (`gifts`, `baby`), then search, filter by status, tag or the collection they use, group and sort. A filtered view has its own address, so you can bookmark it.
 - **Sharing**: collections view-only or can-edit; projects read-only, and a viewer can save their own copy. People can leave what's shared with them.
 - Per-user **themes** (presets or custom colours and corner style), changeable password, admin currency symbol, per-user storage limit, disable users.
@@ -176,6 +177,17 @@ mapped, free space) and a `[config]` line (database, proxy trust, path prefix, l
 Open a project and add tags in the **Tags** panel (separate several with commas; the box suggests tags you've used before). Tags are lower case, up to 30 letters, numbers, spaces, `-` or `_`, and a project holds up to 20. People a project is shared with can see its tags but not change them.
 
 The **Projects** page has a filter bar: search (names, notes and step text), status chips, tag chips (a project must have *all* the tags you pick), **Uses collection**, **Group by** (status, tag, or nothing) and **Sort** (name, recently updated, newest). With nothing chosen it looks as it always did. The address holds your choices (`/projects?tag=gifts&status=active`), so a filtered view can be bookmarked, and the browser remembers your last choice until you press **Clear**. Saving a project as a template or copying it keeps its tags.
+
+## Importing ideas from links
+**Projects → Import from a link** takes any link: a Pinterest pin (or a `pin.it` short link), an Etsy listing, a blog post, or a link straight to a picture. Craft Stash reads the page's title, description and picture (its Open Graph tags) and makes a project with the status **Idea**: the picture becomes its cover, the description goes in its notes, and the link is kept as its source. Pinterest imports are tagged `pinterest`. Choose **A wishlist item** instead for something to buy: it becomes a wish with the picture, and the site and price (when the page lists one) as its first shop.
+
+- **An idea holds no stock.** Materials you add to it are a list, like a template's, and it doesn't put anything on the shopping list. Set its status to **Planned** when you start it and its materials are reserved. Ideas have their own section and status chip on the Projects page.
+- **Import a board**: paste a public board's link (`pinterest.com/<name>/<board>/`). Craft Stash reads the board's RSS feed, which lists its newest pins (Pinterest shows up to 25), and you tick the ones to import, up to 25 at a time. Pins you've imported before are marked and skipped, so you can come back later for new ones. Any RSS or Atom feed works the same way.
+- **Share from your phone**: Craft Stash is installable as a web app (**Add to Home screen** or **Install app** in the browser menu; this needs HTTPS). Once it's installed, **Share → Craft Stash** in the Pinterest app or the browser opens the import page with the link filled in. If you're signed out, it comes back to the page after you sign in.
+- **When a page can't be read** (Pinterest and shops sometimes block automatic visitors), the import says why. Give it a name or a picture yourself and it's saved anyway, with the link.
+- **Cover pictures**: every project can have one, imported or not. Add, replace or remove it in the **Picture** panel on the project page. Cover pictures are kept in the photos folder (`PHOTOS_DIR`) and are part of backups and copies of the project.
+
+**What the server fetches.** Importing means the server visits links people paste, so it only does that safely: `http` and `https` links on the usual ports (80 and 443), with no user name or password in them, to hosts whose addresses are all public. Loopback, your LAN, link-local (cloud metadata), carrier NAT and the Docker network are refused, the connection goes to the address that was checked, and every redirect (up to 5) is checked again. A page is read up to 2 MB, a picture up to 10 MB, with an 8 second timeout and 20 seconds per link. Pictures are re-encoded like every other upload. Set `LINK_IMPORT=off` to turn importing off: the pages, the share target and the API endpoints go away.
 
 ## Wishlist
 The **Shopping** page has two tabs: **Restock** (the shopping list) and **Wishlist**, for things you want but don't own yet.
@@ -428,6 +440,7 @@ Empty means the default. A setting ending in `_FILE` reads the value from that f
 | `SECRET_KEY` | generated | text | (64 random hex) | Signs sessions. Generated once into `/data/secret_key` if empty |
 | `MAX_UPLOAD_MB` | `25` | number | `50` | Largest single upload. Raise the proxy's limit too |
 | `USER_QUOTA_MB` | `500` | number, `0` | `0` | Uploaded files and step photos per user; `0` = unlimited |
+| `LINK_IMPORT` | `on` | `on`, `off` | `off` | [Importing ideas from links](#importing-ideas-from-links). `off`: the server never fetches pasted links |
 
 ### Storage
 | Variable | Default | Allowed | Example | Notes |
@@ -540,6 +553,9 @@ Send the token with every request as `Authorization: Bearer cs_…`. Responses a
 | `POST /api/v1/wishlist` | Add a wish: `{"name": "Chunky wool", "qty": 2, "shop": "Spotlight", "price": 12.5}`. Also `colour`, `hex`, `unit`, `notes`, `type_id`, `item_id` (watch an item), `project_id`, and for the shop `url`, `seen` (`YYYY-MM-DD`) and `shop_notes` |
 | `POST /api/v1/wishlist/<id>/sightings` | Add a shop: `{"shop": "Lincraft", "price": 9.95, "url": "https://…", "seen": "2026-11-25", "notes": "On sale"}` |
 | `POST /api/v1/wishlist/<id>/bought` | Mark it bought: `{"qty": 2, "sighting": <shop id> or "none", "type_id": 1}` (all optional: the cheapest shop and the wish's own type are used). Returns the wish and the item |
+| `POST /api/v1/import/link` | Import a link as an idea: `{"url": "https://pin.it/…"}`, or `"to": "wishlist"` for a wish. Optional `"name"`. Returns the `project` (with `source` and a `photo` link) or the `wish`, and `notes` about anything left out |
+| `GET /api/v1/import/board?url=` | The pins on a public board (or any feed): `title`, `link`, `image`, and `imported` (the project id when you have it already) |
+| `POST /api/v1/import/board` | Import pins as ideas: `{"url": "<board>", "pins": ["<pin link>", …]}`, or leave out `pins` for every new one. Up to 25 per call; `remaining` says how many are left |
 
 Stock changes made through the API go into the collection's activity history under your name, so they can be undone there. After 8 wrong tokens from one address in 10 minutes, that address gets `429` responses until the 10 minutes are up.
 

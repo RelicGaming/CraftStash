@@ -29,7 +29,7 @@ SAFE_CALLS = {  # function -> why its result is safe in SQL text
     "column": "importer.ITEM_COLUMNS allowlist", "map": "map(column, ...) in the importer", "len": "a count",
     "schema_file": "the schema file for the engine",
 }
-SAFE_SUBSCRIPTS = {"SORTS", "FILE_SCOPES", "PHOTO_SCOPES", "STEP_PHOTO_SCOPES"}   # frozen allowlists
+SAFE_SUBSCRIPTS = {"SORTS", "FILE_SCOPES", "PHOTO_SCOPES", "STEP_PHOTO_SCOPES", "PROJECT_PHOTO_SCOPES"}   # frozen allowlists
 
 def name_of(node):
     if isinstance(node, ast.Name): return node.id

@@ -45,6 +45,7 @@
   <Config Name="ALLOW_SIGNUP" Target="ALLOW_SIGNUP" Default="1|0" Mode="" Description="Starting default for open sign-up; the Admin page can change it later." Type="Variable" Display="advanced" Required="false" Mask="false">1</Config>
   <Config Name="MAX_UPLOAD_MB" Target="MAX_UPLOAD_MB" Default="25" Mode="" Description="Largest single upload." Type="Variable" Display="advanced" Required="false" Mask="false">25</Config>
   <Config Name="USER_QUOTA_MB" Target="USER_QUOTA_MB" Default="500" Mode="" Description="Uploaded files per user, 0 = unlimited." Type="Variable" Display="advanced" Required="false" Mask="false">500</Config>
+  <Config Name="LINK_IMPORT" Target="LINK_IMPORT" Default="on" Mode="" Description="Import ideas from links and Pinterest boards (the server fetches the pages people paste, never private addresses). off = turn it off." Type="Variable" Display="advanced" Required="false" Mask="false">on</Config>
   <Config Name="BACKUP_KEEP" Target="BACKUP_KEEP" Default="7" Mode="" Description="Daily database snapshots to keep, 0 = off." Type="Variable" Display="advanced" Required="false" Mask="false">7</Config>
 
   <Config Name="DATABASE_URL" Target="DATABASE_URL" Default="" Mode="" Description="Empty = SQLite in App data. Or an external database: postgresql://user:pass@192.168.1.20:5432/craftstash or mysql://user:pass@192.168.1.20:3306/craftstash" Type="Variable" Display="advanced" Required="false" Mask="true"/>

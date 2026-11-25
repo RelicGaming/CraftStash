@@ -7,6 +7,7 @@ from items import adjust_stock, suggest
 from pools import match, places_in, SEARCH_LIMIT
 from projects import project_filters, project_sections, tags_of, visible_projects
 import wishlist as wl
+import linkfetch as lf, linkimport as li
 
 @app.errorhandler(HTTPException)
 def http_error(e):
@@ -54,7 +55,7 @@ def api_index():
         "GET /api/v1/collections", "GET /api/v1/collections/<id>", "GET /api/v1/items?q=&status=",
         "GET /api/v1/items/<id>", "POST /api/v1/items/<id>/adjust", "GET /api/v1/projects", "GET /api/v1/projects/<id>",
         "GET /api/v1/wishlist?got=1", "POST /api/v1/wishlist", "GET /api/v1/wishlist/<id>", "POST /api/v1/wishlist/<id>/sightings",
-        "POST /api/v1/wishlist/<id>/bought"])
+        "POST /api/v1/wishlist/<id>/bought", "POST /api/v1/import/link", "GET /api/v1/import/board?url=", "POST /api/v1/import/board"])
 
 @app.get("/api/v1/summary")
 def api_summary():
@@ -148,7 +149,11 @@ def api_adjust(iid):
 
 def project_json(p, tags=()):
     return {"id": p["id"], "name": p["name"], "status": p["status"], "owner": p["owner"], "tags": list(tags),
-            "created": p["created"] or None, "updated": p["updated"] or None, "url": url_for("project", id=p["id"], _external=True)}
+            "created": p["created"] or None, "updated": p["updated"] or None, "source": p["source"] or None,
+            "photo": url_for("project_photo", id=p["id"], _external=True) if p["photo"] else None,
+            "url": url_for("project", id=p["id"], _external=True)}
+
+def project_tags(id): return [r["tag"] for r in q("SELECT tag FROM project_tags WHERE project_id=? ORDER BY tag", id)]
 
 @app.get("/api/v1/projects")
 def api_projects():
@@ -166,7 +171,7 @@ def api_project(id):
     mats = q("""SELECT a.qty AS reserved, a.consumed, a.used, s.id, s.name, s.colour, s.unit, s.qty, s.free, s.tname, s.pname
                 FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=? ORDER BY s.tname, s.name""", id)
     steps = q("SELECT title, body FROM steps WHERE project_id=? ORDER BY pos", id)
-    return jsonify({**project_json(p, [r["tag"] for r in q("SELECT tag FROM project_tags WHERE project_id=? ORDER BY tag", id)]), "notes": p["notes"],
+    return jsonify({**project_json(p, project_tags(id)), "notes": p["notes"],
                     "materials": [{"item_id": m["id"], "name": m["name"], "colour": m["colour"], "type": m["tname"], "collection": m["pname"],
                                    "unit": m["unit"], "reserved": m["reserved"], "used": m["used"] if m["consumed"] else None,
                                    "in_stock": m["qty"], "free": m["free"]} for m in mats],
@@ -214,3 +219,42 @@ def api_wish_bought(wid):
     try: iid = wl.buy(w, b)
     except wl.Invalid as e: return api_error(400, str(e))
     return jsonify(wish=wish_out(wid), item=item_json(item_of(iid), field_map()))
+
+# ---------- import from a link ----------
+def import_off(): return None if lf.ENABLED else api_error(404, "Link import is turned off on this server (LINK_IMPORT=off).")
+
+@app.post("/api/v1/import/link")
+def api_import_link():
+    """Body: {"url": "https://pin.it/...", "to": "project" (default) or "wishlist", "name": "..." (optional)}."""
+    b = body()
+    if import_off(): return import_off()
+    if not isinstance(b, dict) or not b.get("url"): return api_error(400, 'Send a JSON object, like {"url": "https://www.pinterest.com/pin/123/"}.')
+    try: done = li.import_link(str(b["url"])[:500], "wishlist" if b.get("to") == "wishlist" else "project", str(b.get("name") or "").strip()[:100])
+    except (lf.FetchError, wl.Invalid) as e: return api_error(400, str(e))
+    if done.kind == "wish": return jsonify(wish=wish_out(done.id), notes=done.notes), 201
+    return jsonify(project=project_json(project_of(done.id), project_tags(done.id)), notes=done.notes), 201
+
+def pin_json(p): return {"title": p["title"], "link": p["link"], "image": p["image"] or None, "imported": p["imported"] or None}
+
+@app.get("/api/v1/import/board")
+def api_board():
+    """?url=<a public board, like https://www.pinterest.com/name/board/, or any RSS feed>. Lists its pins; imported
+    holds the project id of a pin you already have."""
+    if import_off(): return import_off()
+    try: title, feed, pins = li.board_pins(request.args.get("url", "")[:500])
+    except lf.FetchError as e: return api_error(400, str(e))
+    return jsonify(title=title, feed=feed, pins=[pin_json(p) for p in pins])
+
+@app.post("/api/v1/import/board")
+def api_board_import():
+    """Body: {"url": <board>, "pins": [pin links] (optional: every new pin)}. Imports up to 25 per call as ideas."""
+    b = body()
+    if import_off(): return import_off()
+    if not isinstance(b, dict) or not b.get("url"): return api_error(400, 'Send a JSON object, like {"url": "https://www.pinterest.com/name/board/"}.')
+    chosen = b.get("pins")
+    if chosen is not None and not (isinstance(chosen, list) and all(isinstance(x, str) for x in chosen)): return api_error(400, '"pins" is a list of pin links.')
+    try: _, _, pins = li.board_pins(str(b["url"])[:500])
+    except lf.FetchError as e: return api_error(400, str(e))
+    done, already, left, failed = li.import_pins(pins, set(chosen) if chosen is not None else None)
+    return jsonify(imported=[project_json(project_of(i), project_tags(i)) for i in done], already_imported=already, remaining=left,
+                   pictures_failed=failed), 201 if done else 200

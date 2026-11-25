@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark"><title>{% block title %}Craft Stash{% endblock %}</title>
+<link rel="manifest" href="{{ url_for('manifest') }}"><meta name="theme-color" content="#3f46b8">
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='icon-192.png') }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}"><script src="{{ url_for('static', filename='app.js') }}" defer></script>{% if theme_css %}<style>{{ theme_css }}</style>{% endif %}</head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 <symbol id="i-logo" viewBox="0 0 24 24"><path d="M5 4h14M5 20h14M8 4v16M12 4v16M16 4v16"/></symbol>
