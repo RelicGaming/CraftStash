@@ -8,6 +8,7 @@ from pools import match, places_in, SEARCH_LIMIT
 from projects import project_filters, project_sections, tags_of, visible_projects
 import wishlist as wl
 import linkfetch as lf, linkimport as li
+import patterns as pt
 
 @app.errorhandler(HTTPException)
 def http_error(e):
@@ -55,7 +56,8 @@ def api_index():
         "GET /api/v1/collections", "GET /api/v1/collections/<id>", "GET /api/v1/items?q=&status=",
         "GET /api/v1/items/<id>", "POST /api/v1/items/<id>/adjust", "GET /api/v1/projects", "GET /api/v1/projects/<id>",
         "GET /api/v1/wishlist?got=1", "POST /api/v1/wishlist", "GET /api/v1/wishlist/<id>", "POST /api/v1/wishlist/<id>/sightings",
-        "POST /api/v1/wishlist/<id>/bought", "POST /api/v1/import/link", "GET /api/v1/import/board?url=", "POST /api/v1/import/board"])
+        "POST /api/v1/wishlist/<id>/bought", "POST /api/v1/import/link", "GET /api/v1/import/board?url=", "POST /api/v1/import/board",
+        "GET /api/v1/patterns", "POST /api/v1/patterns", "GET /api/v1/patterns/<id>", "POST /api/v1/patterns/<id>/project"])
 
 @app.get("/api/v1/summary")
 def api_summary():
@@ -258,3 +260,42 @@ def api_board_import():
     done, already, left, failed = li.import_pins(pins, set(chosen) if chosen is not None else None)
     return jsonify(imported=[project_json(project_of(i), project_tags(i)) for i in done], already_imported=already, remaining=left,
                    pictures_failed=failed), 201 if done else 200
+
+# ---------- pixel patterns ----------
+def pattern_json(p, full=False):
+    chart, st = pt.chart_and_settings(p)
+    out = {"id": p["id"], "name": p["name"], "craft": st["craft"], "width": chart["w"], "height": chart["h"],
+           "colours": len(chart["palette"]), "project_id": p["project_id"], "created": p["created"], "updated": p["updated"],
+           "chart": url_for("pattern_png", id=p["id"], _external=True), "pdf": url_for("pattern_pdf", id=p["id"], _external=True),
+           "url": url_for("pattern", id=p["id"], _external=True)}
+    if full:
+        out["settings"] = st
+        out["legend"] = [{"symbol": r["symbol"], "hex": r["hex"], "label": r["label"], "cells": r["count"], "need": round(r["need"], 2),
+                          "unit": r["unit"], "status": r["status"], "short": round(r["short"], 2) if r["short"] is not None else None,
+                          "item": {"id": r["item"]["id"], "name": r["item"]["name"], "free": r["item"]["free"], "unit": r["item"]["unit"]} if r["item"] else None,
+                          "match": r["match"]} for r in pt.legend(p, chart, st)]
+    return out
+
+@app.get("/api/v1/patterns")
+def api_patterns():
+    return jsonify(patterns=[pattern_json(p) for p in q("SELECT * FROM patterns WHERE user_id=? ORDER BY updated DESC, id DESC", uid())])
+
+@app.get("/api/v1/patterns/<int:id>")
+def api_pattern(id): return jsonify(pattern_json(pt.pattern_of(id), True))
+
+@app.post("/api/v1/patterns")
+def api_pattern_add():
+    """Multipart form: "photo" (the picture) and any settings: name, craft, palette ("catalogue:dmc-floss", "pool:<id>",
+    "type:<id>" or "free"), width, height, colours, min_count, dither, sharp, check, and the craft's own fields."""
+    try: pid = pt.create(request.form, request.files.get("photo"))
+    except pt.Invalid as e: return api_error(400, str(e))
+    return jsonify(pattern_json(pt.pattern_of(pid), True)), 201
+
+@app.post("/api/v1/patterns/<int:id>/project")
+def api_pattern_project(id):
+    """Body (optional): {"wishes": false} to leave colours you don't have off the wishlist."""
+    p = pt.pattern_of(id); b = body() or {}
+    try: pid, notes = pt.to_project(p, b.get("wishes", True) not in (False, "0", "false"))
+    except pt.Invalid as e: return api_error(400, str(e))
+    return jsonify(project=project_json(project_of(pid), project_tags(pid)), notes=notes), 201
+

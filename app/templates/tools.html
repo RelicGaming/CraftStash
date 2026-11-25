@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block title %}Tools - Craft Stash{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Tools</h1></div>
+<div class="tiles">{% for t in tools %}<a class="tile" href="{{ url_for(t.endpoint) }}"><div class="tile-body"><h3><svg class="i"><use href="#i-grid"/></svg> {{ t.name }}</h3>
+<p class="muted small m0">{{ t.text }}</p></div></a>{% endfor %}</div>
+<h2 class="section-title">Your patterns</h2>
+{% if patterns %}<div class="tiles">{% for p in patterns %}<a class="tile" href="{{ url_for('pattern', id=p.id) }}"><img class="tile-photo pattern-thumb" src="{{ url_for('pattern_png', id=p.id, thumb=1) }}" alt="" loading="lazy">
+<div class="tile-body"><h3>{{ p.name }}</h3><div class="tile-meta"><span class="pill">{{ p.craft }}</span>{% if p.project_id %}<span class="pill ok">On a project</span>{% endif %}</div></div></a>{% endfor %}</div>
+{% else %}<p class="muted">No patterns yet. Make one from any picture: a photo, a drawing or pixel art.</p>{% endif %}
+<p class="muted small mt-14">Thread and bead colours: DMC floss and diamond drills from craft-color-codes by <a href="https://makebead.com/" rel="noopener noreferrer">MakeBead</a> (CC BY 4.0); Perler, Hama and Artkal beads from maxcleme/beadcolors (MIT). The colours are screen approximations, so check a real colour card before you buy.</p>
+{% endblock %}

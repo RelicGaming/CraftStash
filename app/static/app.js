@@ -24,6 +24,25 @@
   // <button data-print>
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) window.print(); });
 
+  // The pattern settings: show the chosen craft's own fields, and switch to its catalogue unless a palette was picked.
+  document.querySelectorAll('[data-pattern-form]').forEach(f => {
+    const craft = f.querySelector('[data-craft]'), pal = f.querySelector('[data-palette]'); let picked = false;
+    pal.addEventListener('change', () => { picked = true; });
+    craft.addEventListener('change', () => {
+      f.querySelectorAll('[data-for-craft]').forEach(fs => { fs.hidden = fs.dataset.forCraft !== craft.value; });
+      const cat = craft.selectedOptions[0].dataset.catalogue;
+      if (!picked) pal.value = cat ? 'catalogue:' + cat : 'free';
+    });
+  });
+  // The chart: zoom in and out (the picture is drawn at full size; Fit shows it all).
+  document.querySelectorAll('[data-chart-view]').forEach(v => {
+    const img = v.querySelector('img'); let z = 1;
+    document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => {
+      const step = +b.dataset.zoom; z = step ? Math.min(8, Math.max(1, z * (step > 0 ? 1.5 : 1 / 1.5))) : 1;
+      img.style.width = (z * 100) + '%';
+    }));
+  });
+
   // <form data-busy>: importing fetches another site, which takes a few seconds. Show that it's working, once.
   document.addEventListener('submit', e => {
     const f = e.target, b = e.submitter || (f.querySelector && f.querySelector('button'));

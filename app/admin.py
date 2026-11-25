@@ -5,7 +5,7 @@ from flask import (abort, after_this_request, flash, g, redirect, render_templat
     url_for)
 from pathlib import Path
 from werkzeug.security import generate_password_hash
-from core import (app, clean, currency, get, local_time, P, purge_files, purge_photos, purge_project_photos, purge_step_photos,
+from core import (app, clean, currency, get, local_time, P, purge_files, purge_pattern_files, purge_photos, purge_project_photos, purge_step_photos,
     purge_wish_photos, pwv, q, run, signups_open, SSO, uid, valid_account)
 
 # ---------- admin ----------
@@ -64,6 +64,7 @@ def admin_delete(id):
     if id == uid(): flash("You can't delete yourself.")
     else:
         purge_files("user", id); purge_photos("user", id); purge_step_photos("user", id); purge_project_photos("user", id); purge_wish_photos(id)
+        purge_pattern_files(id)
         run("DELETE FROM users WHERE id=?", id)
     return redirect(url_for("admin"))
 

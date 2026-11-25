@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}New pixel pattern - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('tools') }}"><svg class="i"><use href="#i-chev-l"/></svg>Tools</a>
+<div class="page-head"><h1>New pixel pattern</h1></div>
+<form class="panel" method="post" enctype="multipart/form-data" data-busy>{{ csrf }}
+<div class="form-grid">
+<label class="field wide"><span>Picture</span><input type="file" name="photo" accept="image/*" required></label>
+<label class="field wide"><span>Name <span class="muted">(optional)</span></span><input name="name" value="{{ name }}" maxlength="100" placeholder="Taken from the picture's file name"></label>
+</div>
+<p class="muted small">Simple pictures with clear shapes work best. A transparent background stays unstitched. Up to 250 x 250 stitches and 60 colours.</p>
+{% include "pattern_settings.html" %}
+<div class="form-actions"><button class="btn"><svg class="i"><use href="#i-grid"/></svg>Make the pattern</button></div>
+</form>
+{% endblock %}

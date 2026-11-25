@@ -1,0 +1,24 @@
+{# The pattern settings, shared by the new-pattern form and the pattern page. Needs s, crafts, catalogues, pools, types. #}
+<div class="form-grid" data-pattern-form>
+<label class="field"><span>Craft</span><select name="craft" data-craft>{% for k, c in crafts.items() %}<option value="{{ k }}" data-catalogue="{{ c.catalogue }}" {{ 'selected' if s.craft == k }}>{{ c.label }}</option>{% endfor %}</select></label>
+<label class="field"><span>Colours from</span><select name="palette" data-palette>
+<optgroup label="Catalogue">{% for k, v in catalogues.items() %}<option value="catalogue:{{ k }}" {{ 'selected' if s.palette == 'catalogue:' ~ k }}>{{ v }}</option>{% endfor %}</optgroup>
+{% if pools %}<optgroup label="My stash: a collection">{% for p in pools %}<option value="pool:{{ p.id }}" {{ 'selected' if s.palette == 'pool:' ~ p.id }}>{{ p.name }}</option>{% endfor %}</optgroup>
+<optgroup label="My stash: one type">{% for t in types %}<option value="type:{{ t.id }}" {{ 'selected' if s.palette == 'type:' ~ t.id }}>{{ t.pname }} / {{ t.name }}</option>{% endfor %}</optgroup>{% endif %}
+<option value="free" {{ 'selected' if s.palette == 'free' }}>Any colours (the picture's own)</option></select></label>
+<label class="field"><span>Width (stitches)</span><input name="width" type="number" min="5" max="250" value="{{ s.width }}" inputmode="numeric" required></label>
+<label class="field"><span>Height <span class="muted">(0 keeps the shape)</span></span><input name="height" type="number" min="0" max="250" value="{{ s.height }}" inputmode="numeric"></label>
+<label class="field"><span>Most colours</span><input name="colours" type="number" min="2" max="60" value="{{ s.colours }}" inputmode="numeric"></label>
+<label class="field"><span>Merge colours used fewer than</span><input name="min_count" type="number" min="0" max="500" value="{{ s.min_count }}" inputmode="numeric"></label>
+<label class="field wide"><span>Check against my stock</span><select name="check">
+<option value="all" {{ 'selected' if s.check == 'all' }}>Everything I can see</option>
+{% for p in pools %}<option value="pool:{{ p.id }}" {{ 'selected' if s.check == 'pool:' ~ p.id }}>{{ p.name }}</option>{% endfor %}
+{% for t in types %}<option value="type:{{ t.id }}" {{ 'selected' if s.check == 'type:' ~ t.id }}>{{ t.pname }} / {{ t.name }}</option>{% endfor %}
+<option value="none" {{ 'selected' if s.check == 'none' }}>Don't check</option></select></label>
+<div class="field wide"><span>Look</span><div class="chips">
+<label class="chip pick"><input type="checkbox" name="dither" value="1" {{ 'checked' if s.dither }}><span>Dither (smoother shading, more scattered stitches)</span></label>
+<label class="chip pick"><input type="checkbox" name="sharp" value="1" {{ 'checked' if s.sharp }}><span>Sharp edges (pixel art)</span></label></div></div>
+{% for k, c in crafts.items() %}<fieldset class="craft-fields wide" data-for-craft="{{ k }}" {{ 'hidden' if s.craft != k }}><legend>{{ c.label }}</legend><div class="form-grid">
+{% for f, (label, default, lo, hi) in c.fields.items() %}<label class="field"><span>{{ label }}</span><input name="{{ f }}" type="number" min="{{ lo }}" max="{{ hi }}" step="any" value="{{ s[f] if s.craft == k and s[f] is defined else default }}" inputmode="decimal"></label>{% endfor %}
+</div></fieldset>{% endfor %}
+</div>
