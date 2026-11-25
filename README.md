@@ -454,6 +454,7 @@ Empty means the default. A setting ending in `_FILE` reads the value from that f
 | `OIDC_AUTO_PROVISION` | `0` | `0`, `1` | `1` | Create accounts at first SSO login |
 | `OIDC_LINK_EXISTING` | `0` | `0`, `1` | `1` | Link a same-named local account automatically (only for providers whose usernames you control) |
 | `OIDC_NAME` | `single sign-on` | text | `Authentik` | Button text |
+| `OIDC_ALLOW_HTTP` | `0` | `0`, `1` | | Allow a plain `http://` issuer on another machine. **Unsafe**: the ID token is trusted because it arrives over TLS, so without TLS anyone on that network can log in as anyone. The log and the Admin page warn while it's on. A provider on `localhost` never needs it. |
 
 ### Backups
 | Variable | Default | Allowed | Example | Notes |

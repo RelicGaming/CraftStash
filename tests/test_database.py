@@ -19,6 +19,33 @@ import dbx
 def test_placeholders(sql, out):
     assert dbx.placeholders(sql, True) == out
 
+@pytest.mark.parametrize("sql, out", [
+    ("SELECT a -- what's ?\nFROM t WHERE x=?", "SELECT a -- what's ?\nFROM t WHERE x=%s"),          # quote and ? in a comment
+    ("SELECT /* don't ? :p */ a FROM t WHERE x=?", "SELECT /* don't ? :p */ a FROM t WHERE x=%s"),
+    ("SELECT '100%' -- 5% off\nWHERE x=?", "SELECT '100%%' -- 5%% off\nWHERE x=%s"),               # % doubled in comments too
+    ("SELECT 'a''' , ? FROM t", "SELECT 'a''' , %s FROM t"),                                         # '' right before the close
+    ("SELECT `we?ird` FROM t WHERE x=?", "SELECT `we?ird` FROM t WHERE x=%s"),
+    ("SELECT 1 - -1 WHERE x=?", "SELECT 1 - -1 WHERE x=%s"),                                       # minus minus is not a comment
+    ("SELECT 'open ? ", "SELECT 'open ? "),                                                          # unterminated: all literal
+])
+def test_placeholders_skip_literals_and_comments(sql, out):
+    assert dbx.placeholders(sql, True) == out
+
+def test_mysql_backslash_escapes_stay_in_the_literal():
+    assert dbx.translate(r"SELECT 'it\'s ?' , key FROM t WHERE x=?", "mysql")[0] == r"SELECT 'it\'s ?' , `key` FROM t WHERE x=%s"
+    # Without backslash escapes (SQLite, Postgres) the backslash is an ordinary character and ' closes the literal.
+    assert dbx.placeholders(r"SELECT 'a\' , ?", True) == r"SELECT 'a\' , %s"
+
+def test_mysql_rewrites_skip_literals_and_comments():
+    sql = "INSERT OR IGNORE INTO t(key) VALUES('INSERT OR IGNORE INTO') -- key COLLATE NOCASE"
+    assert dbx.translate(sql, "mysql", False)[0] == "INSERT IGNORE INTO t(`key`) VALUES('INSERT OR IGNORE INTO') -- key COLLATE NOCASE"
+
+def test_postgres_keywords_in_literals_or_comments_dont_count():
+    sql, ret = dbx.translate("INSERT INTO items(name, notes) VALUES(?, 'RETURNING soon')", "postgres")
+    assert sql.endswith("'RETURNING soon') RETURNING id") and ret
+    sql, ret = dbx.translate("INSERT OR IGNORE INTO project_shares(project_id,user_id) VALUES(?,?) -- ON CONFLICT", "postgres")
+    assert sql == "INSERT INTO project_shares(project_id,user_id) VALUES(%s,%s) -- ON CONFLICT\n ON CONFLICT DO NOTHING" and not ret
+
 def test_no_params_leaves_sql_alone():
     assert dbx.placeholders("SELECT '%' WHERE 1", False) == "SELECT '%' WHERE 1"
 

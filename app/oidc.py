@@ -14,7 +14,7 @@ The authorization code flow with PKCE, using only the standard library:
 Settings: OIDC_ENABLED, OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET (or _FILE), OIDC_SCOPES, OIDC_REDIRECT_URI,
 OIDC_USERNAME_CLAIM, OIDC_AUTO_PROVISION, OIDC_LINK_EXISTING, OIDC_NAME.
 """
-import base64, hashlib, json, os, re, secrets, ssl, time, urllib.error, urllib.parse, urllib.request
+import base64, hashlib, json, os, re, secrets, ssl, sys, time, urllib.error, urllib.parse, urllib.request
 import dbx
 
 LEEWAY = 120                 # seconds of clock difference allowed
@@ -39,27 +39,46 @@ class Config:
         self.auto_provision = _flag("OIDC_AUTO_PROVISION")
         self.link_existing = _flag("OIDC_LINK_EXISTING")
         self.name = os.environ.get("OIDC_NAME", "").strip()[:40] or "single sign-on"
+        u = urllib.parse.urlsplit(self.issuer)
+        self.local = u.hostname in ("localhost", "127.0.0.1", "::1") or (u.hostname or "").endswith(".localhost")
+        # Plain http to a provider on another machine: only allowed with OIDC_ALLOW_HTTP, and then nothing proves who answered.
+        self.insecure = self.enabled and u.scheme == "http" and not self.local
         if self.enabled: self.check()
+
+    def warning(self):
+        """A loud explanation for the log and the admin page when sign-in runs over plain http to another machine."""
+        if not self.insecure: return ""
+        return ("OIDC_ALLOW_HTTP is on and OIDC_ISSUER is plain http. Craft Stash trusts the ID token because it came "
+                "straight from the provider over TLS; without TLS anyone on the network between this server and "
+                f"{urllib.parse.urlsplit(self.issuer).hostname} can read the tokens or answer in the provider's place and "
+                "log in as any user. Use https (or a provider on the same machine) and turn OIDC_ALLOW_HTTP off.")
 
     def check(self):
         missing = [n for n, v in (("OIDC_ISSUER", self.issuer), ("OIDC_CLIENT_ID", self.client_id),
                                   ("OIDC_CLIENT_SECRET", self.client_secret)) if not v]
         if missing: raise SystemExit(f"OIDC_ENABLED=1 needs {', '.join(missing)}.")
         u = urllib.parse.urlsplit(self.issuer)
-        local = u.hostname in ("localhost", "127.0.0.1", "::1") or (u.hostname or "").endswith(".localhost")
-        if u.scheme != "https" and not (u.scheme == "http" and (local or _flag("OIDC_ALLOW_HTTP"))):
+        if u.scheme != "https" and not (u.scheme == "http" and (self.local or _flag("OIDC_ALLOW_HTTP"))):
             raise SystemExit("OIDC_ISSUER must be an https:// address (the provider's identity is checked through its certificate).")
         if "openid" not in self.scopes.split(): raise SystemExit("OIDC_SCOPES must include openid.")
         if self.redirect_uri and not re.match(r"^https?://", self.redirect_uri):
             raise SystemExit("OIDC_REDIRECT_URI must be the full address of /login/sso/callback, e.g. https://craft.example.com/login/sso/callback")
 
 # ---------------------------------------------------------------- HTTP (replaced in tests)
+class _NoDowngrade(urllib.request.HTTPRedirectHandler):
+    """Follow redirects, but never from https to http (the Authorization header would go out in the clear)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if req.full_url.startswith("https://") and not newurl.startswith("https://"):
+            raise urllib.error.URLError(f"refused redirect from https to {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
 def http(method, url, data=None, headers=None):
     """Fetch JSON from the provider. Certificates are always verified."""
     body = urllib.parse.urlencode(data).encode() if data is not None else None
     req = urllib.request.Request(url, data=body, method=method, headers={"Accept": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT, context=ssl.create_default_context()) as r:
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl.create_default_context()), _NoDowngrade)
+        with opener.open(req, timeout=TIMEOUT) as r:
             return json.loads(r.read(1_000_001)[:1_000_000] or b"{}")
     except urllib.error.HTTPError as e:
         try: err = json.loads(e.read(10_000) or b"{}")
@@ -81,6 +100,12 @@ def discover(cfg):
             raise Error("Single sign-on is set up wrongly.", f"discovery has no usable {k}")
     if not cfg.issuer.startswith("http://") and not d["token_endpoint"].startswith("https://"):
         raise Error("Single sign-on is set up wrongly.", "token_endpoint is not https")
+    ui = d.get("userinfo_endpoint")
+    if ui is not None and not (isinstance(ui, str) and ui.startswith("https://" if cfg.issuer.startswith("https://") else ("https://", "http://"))):
+        # The access token would go to it in the clear (or somewhere odd): never use it, but sign-in can still work
+        # when the username is in the ID token.
+        print(f"[sso] ignoring userinfo_endpoint {ui!r}: an https issuer's userinfo must be https too", file=sys.stderr, flush=True)
+        d = {k: v for k, v in d.items() if k != "userinfo_endpoint"}
     _discovery[cfg.issuer] = (time.time(), d)
     return d
 

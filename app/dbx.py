@@ -151,38 +151,58 @@ class Cursor:
 # ---------------------------------------------------------------- SQL translation
 _INSERT = re.compile(r"^\s*INSERT\s+(OR\s+IGNORE\s+)?INTO\s+(\w+)", re.I)
 
-def placeholders(sql, has_params):
-    """`?` outside quotes -> %s and `:name` -> %(name)s; every % doubled (the drivers treat % as a format character
-    when there are params). `::type` casts are left alone."""
-    if not has_params: return sql
-    out, quote_ch, i, n = [], None, 0, len(sql)
+def _segments(sql, backslash=False):
+    """Split sql into (kind, text) pieces: kind is "code", "literal" ('...', "...", `...`) or "comment" (-- to the end
+    of the line, /* ... */). A doubled quote inside a literal ('it''s') stays in that literal; with backslash=True (MySQL's
+    default) so does a backslash-escaped one ('it\\'s'). An unterminated literal or comment runs to the end."""
+    out, i, n, start = [], 0, len(sql), 0
+    def flush(j, kind="code"):
+        if j > start: out.append((kind, sql[start:j]))
     while i < n:
         ch = sql[i]
-        if quote_ch:
-            if ch == quote_ch: quote_ch = None
-        elif ch in "'\"": quote_ch = ch
-        elif ch == "?": out.append("%s"); i += 1; continue
-        elif ch == ":" and i + 1 < n and (sql[i + 1].isalpha() or sql[i + 1] == "_") and (i == 0 or sql[i - 1] != ":"):
-            j = i + 1
-            while j < n and (sql[j].isalnum() or sql[j] == "_"): j += 1
-            out.append(f"%({sql[i + 1:j]})s"); i = j; continue
-        out.append("%%" if ch == "%" else ch); i += 1
-    return "".join(out)
+        if ch in "'\"`":
+            flush(i); j = i + 1
+            while j < n:
+                if backslash and ch != "`" and sql[j] == "\\": j += 2; continue
+                if sql[j] == ch:
+                    if j + 1 < n and sql[j + 1] == ch: j += 2; continue
+                    break
+                j += 1
+            start = i; i = min(j + 1, n); flush(i, "literal"); start = i
+        elif sql.startswith("--", i) or sql.startswith("/*", i):
+            flush(i); j = sql.find("\n", i) if ch == "-" else sql.find("*/", i + 2)
+            j = n if j < 0 else (j if ch == "-" else j + 2)
+            start = i; i = j; flush(i, "comment"); start = i
+        else: i += 1
+    flush(n)
+    return out
+
+def _code(sql, fn, backslash=False):
+    """Apply fn to the SQL code only, leaving literals and comments as they are."""
+    return "".join(fn(t) if k == "code" else t for k, t in _segments(sql, backslash))
+
+def _code_only(sql):
+    """sql with literals and comments blanked out, for searching keywords."""
+    return " ".join(t for k, t in _segments(sql) if k == "code")
+
+def placeholders(sql, has_params, backslash=False):
+    """`?` in code -> %s and `:name` -> %(name)s; every % doubled, in literals and comments too (the drivers treat % as a
+    format character when there are params). `::type` casts are left alone; `?` in a literal or comment is not a placeholder."""
+    if not has_params: return sql
+    def conv(part):
+        out, i, n = [], 0, len(part)
+        while i < n:
+            ch = part[i]
+            if ch == "?": out.append("%s"); i += 1; continue
+            if ch == ":" and i + 1 < n and (part[i + 1].isalpha() or part[i + 1] == "_") and (i == 0 or part[i - 1] != ":"):
+                j = i + 1
+                while j < n and (part[j].isalnum() or part[j] == "_"): j += 1
+                out.append(f"%({part[i + 1:j]})s"); i = j; continue
+            out.append("%%" if ch == "%" else ch); i += 1
+        return "".join(out)
+    return "".join(conv(t) if k == "code" else t.replace("%", "%%") for k, t in _segments(sql, backslash))
 
 _RESERVED_MYSQL = re.compile(r"(?<![`\w.:])(key|stored)(?![`\w])|(?<=\.)(key|stored)(?![`\w])", re.I)
-
-def _outside_quotes(sql, fn):
-    """Apply fn to the parts of sql that are not inside '...' or "..." literals."""
-    out, buf, quote_ch = [], [], None
-    for ch in sql:
-        if quote_ch:
-            out.append(ch)
-            if ch == quote_ch: quote_ch = None
-        elif ch in "'\"":
-            out.append(fn("".join(buf))); buf = []; out.append(ch); quote_ch = ch
-        else: buf.append(ch)
-    out.append(fn("".join(buf)))
-    return "".join(out)
 
 def _mysql(sql):
     def fix(part):
@@ -192,19 +212,23 @@ def _mysql(sql):
         part = re.sub(r"\bON\s+CONFLICT\s*\([^)]*\)\s*DO\s+UPDATE\s+SET\b", "ON DUPLICATE KEY UPDATE", part, flags=re.I)
         part = re.sub(r"\bON\s+CONFLICT\s*(\([^)]*\))?\s*DO\s+NOTHING\b", "", part, flags=re.I)
         return re.sub(r"\bexcluded\.(\w+)", r"VALUES(\1)", part, flags=re.I)
-    return _outside_quotes(sql, fix)
+    return _code(sql, fix, backslash=True)
 
 def translate(sql, eng, has_params=True):
     """SQLite-flavoured SQL -> the engine's. Returns (sql, adds_returning)."""
     returning = False
-    if eng == "mysql": return placeholders(_mysql(sql), has_params), False
+    if eng == "mysql": return placeholders(_mysql(sql), has_params, backslash=True), False
     m = _INSERT.match(sql)
-    if eng == "postgres":
-        if m and m.group(1):
+    if eng == "postgres" and m:
+        code = _code_only(sql)
+        def add(sql, clause):
+            sql = sql.rstrip().rstrip(";").rstrip()
+            return sql + ("\n" if _segments(sql)[-1][0] == "comment" else "") + clause   # not inside a trailing -- comment
+        if m.group(1):
             sql = sql[:m.start(1)] + sql[m.end(1):]
-            if not re.search(r"\bON\s+CONFLICT\b", sql, re.I): sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
-        if m and m.group(2).lower() in ID_TABLES and not re.search(r"\bRETURNING\b", sql, re.I):
-            sql = sql.rstrip().rstrip(";") + " RETURNING id"; returning = True
+            if not re.search(r"\bON\s+CONFLICT\b", code, re.I): sql = add(sql, " ON CONFLICT DO NOTHING")
+        if m.group(2).lower() in ID_TABLES and not re.search(r"\bRETURNING\b", code, re.I):
+            sql = add(sql, " RETURNING id"); returning = True
     return placeholders(sql, has_params), returning
 
 class Conn:
