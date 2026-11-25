@@ -43,18 +43,18 @@ def test_copy_survives_a_missing_upload(env, amy):
 
 # ---------- login limiter ----------
 def test_one_address_spraying_usernames_is_throttled(env, amy):
-    env.mod.IP_LIMIT = 5; c = env.client()
+    env.core.IP_LIMIT = 5; c = env.client()
     for i in range(5): c.login(f"nobody{i}", "wrong")
     assert "Too many failed" in c.login("amy", "password1").get_data(as_text=True)
 
 def test_many_addresses_guessing_one_account_are_throttled(make_env):
-    e = make_env(TRUST_PROXY=1); e.client().register("amy"); e.mod.USER_LIMIT = 6; c = e.client()
+    e = make_env(TRUST_PROXY=1); e.client().register("amy"); e.core.USER_LIMIT = 6; c = e.client()
     for i in range(6): c.c.post("/login", data={"username": "amy", "password": "x", "_csrf": c.token()}, headers={"X-Forwarded-For": f"10.0.0.{i}"})
     r = c.c.post("/login", data={"username": "amy", "password": "password1", "_csrf": c.token()}, headers={"X-Forwarded-For": "10.9.9.9"})
     assert "Too many failed" in r.get_data(as_text=True)
 
 def test_failure_table_is_trimmed_not_wiped(env):
-    m = env.mod; m.FAILS.clear(); m.FAIL_KEYS = 30
+    m = env.core; m.FAILS.clear(); m.FAIL_KEYS = 30
     m.record_fail("1.1.1.1", "amy")
     for i in range(40): m.record_fail(f"2.2.2.{i}", f"u{i}")
     assert 0 < len(m.FAILS) <= 30 and "*|u39" in m.FAILS         # the newest failures are always kept
@@ -150,7 +150,7 @@ def test_upgrade_drops_existing_stale_reservations(make_env, tmp_path):
 def test_old_activity_is_pruned_without_a_restart(env, amy):
     seed(amy); d = env.db()
     import dbx; d.execute("INSERT INTO activity(ts,user_id,pool_id,kind,text) VALUES(?,1,1,'edit','ancient')", (dbx.ago(400),)); d.commit()
-    env.mod._pruned["at"] = 0; amy.get("/")
+    env.core._pruned["at"] = 0; amy.get("/")
     assert not d.execute("SELECT 1 FROM activity WHERE text='ancient'").fetchone()
 
 # ---------- no inline scripts ----------

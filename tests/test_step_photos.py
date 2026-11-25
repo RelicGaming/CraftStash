@@ -58,7 +58,7 @@ def test_photos_count_towards_the_storage_limit(make_env):
     env = make_env(USER_QUOTA_MB=1); amy = env.client().register("amy"); with_step(amy)
     amy.post("/steps/1/photos", {"photos": [pic()]}, content_type="multipart/form-data")
     size = db(env).execute("SELECT size FROM step_photos").fetchone()[0]
-    env.mod.QUOTA = size * 2 + size // 2                       # room for one more photo, not two
+    env.core.QUOTA = size * 2 + size // 2                       # room for one more photo, not two
     page = amy.post("/steps/1/photos", {"photos": [pic(), pic()]}, content_type="multipart/form-data",
                     follow_redirects=True).get_data(as_text=True)
     assert len(stored(env)) == 2 and "storage limit" in page and len(files(env)) == 2
