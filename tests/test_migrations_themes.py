@@ -4,7 +4,7 @@ from pathlib import Path
 import themes
 
 OLD_SCHEMA = (Path(__file__).resolve().parent.parent / "app" / "schema" / "sqlite.sql").read_text()
-for frag in (", theme TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1", ", low_at REAL", ", photo TEXT NOT NULL DEFAULT ''", ", used REAL NOT NULL DEFAULT 0"):
+for frag in (", theme TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1", ", low_at REAL", ", photo TEXT NOT NULL DEFAULT ''", ", used REAL NOT NULL DEFAULT 0", ", created TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL DEFAULT ''"):
     OLD_SCHEMA = OLD_SCHEMA.replace(frag, "")
 
 @pytest.mark.sqlite_only
@@ -22,6 +22,9 @@ def test_old_database_is_upgraded_in_place_with_a_safety_copy(make_env, tmp_path
     assert d.execute("SELECT used FROM assignments").fetchone()[0] == 2                              # completed projects can be reopened
     assert d.execute("SELECT name FROM stock").fetchone()[0] == "Poplin"                              # the view was rebuilt with the new columns
     assert d.execute("PRAGMA user_version").fetchone()[0] == len(__import__("migrations").STEPS)
+    created, updated = d.execute("SELECT created, updated FROM projects").fetchone()
+    assert created and created == updated and {"created", "updated"} <= {r[1] for r in d.execute("PRAGMA table_info(projects)")}   # old projects get dates
+    assert d.execute("SELECT COUNT(*) FROM project_tags").fetchone()[0] == 0
     assert list((tmp_path / "backups").glob("pre-migrate-*.db"))
 
 @pytest.mark.sqlite_only

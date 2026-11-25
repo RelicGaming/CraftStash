@@ -5,6 +5,7 @@ from werkzeug.exceptions import HTTPException
 from core import api_error, app, currency, db, item_of, LOW, num, pool_of, project_of, q, uid
 from items import adjust_stock, suggest
 from pools import match, places_in, SEARCH_LIMIT
+from projects import project_filters, project_sections, tags_of, visible_projects
 
 @app.errorhandler(HTTPException)
 def http_error(e):
@@ -142,20 +143,19 @@ def api_adjust(iid):
     adjust_stock(i, n, b["action"] == "add", place)
     return jsonify(item_json(item_of(iid), field_map(), q("SELECT place, qty FROM item_places WHERE item_id=? ORDER BY place COLLATE NOCASE", iid)))
 
-def project_json(p):
-    return {"id": p["id"], "name": p["name"], "status": p["status"], "owner": p["owner"],
-            "url": url_for("project", id=p["id"], _external=True)}
+def project_json(p, tags=()):
+    return {"id": p["id"], "name": p["name"], "status": p["status"], "owner": p["owner"], "tags": list(tags),
+            "created": p["created"] or None, "updated": p["updated"] or None, "url": url_for("project", id=p["id"], _external=True)}
 
 @app.get("/api/v1/projects")
 def api_projects():
-    me = uid()
-    rows = q("""SELECT p.*, u.username AS owner, (SELECT COUNT(*) FROM assignments WHERE project_id=p.id) AS n_items,
-                (SELECT COUNT(*) FROM steps WHERE project_id=p.id) AS n_steps
-                FROM projects p JOIN users u ON u.id=p.user_id
-                WHERE p.user_id=? OR p.id IN (SELECT project_id FROM project_shares WHERE user_id=?)
-                ORDER BY p.status='template', p.status='done', p.name""", me, me)
-    status = request.args.get("status", "")
-    return jsonify(projects=[{**project_json(r), "materials": r["n_items"], "steps": r["n_steps"]} for r in rows if not status or r["status"] == status])
+    """?status=active&tag=gifts&tag=baby (all tags must match)&q=text (name, notes, steps)&pool=<collection id>"""
+    me = uid(); f = project_filters(request.args); tags = tags_of(me)
+    rows = [{**dict(zip(r.keys(), r)), "tags": tags.get(r["id"], [])} for r in visible_projects(me, f)]
+    rows = [r for s in project_sections(rows, {**f, "group": "none"}, me) for r in s[1]]
+    if f["sort"] == "name": rows.sort(key=lambda r: (r["status"] == "template", r["status"] == "done"))   # as before
+    if request.args.getlist("status") and not f["status"]: rows = []                                       # an unknown status matches nothing
+    return jsonify(projects=[{**project_json(r, r["tags"]), "materials": r["n_items"], "steps": r["n_steps"]} for r in rows])
 
 @app.get("/api/v1/projects/<int:id>")
 def api_project(id):
@@ -163,7 +163,7 @@ def api_project(id):
     mats = q("""SELECT a.qty AS reserved, a.consumed, a.used, s.id, s.name, s.colour, s.unit, s.qty, s.free, s.tname, s.pname
                 FROM assignments a JOIN stock s ON s.id=a.item_id WHERE a.project_id=? ORDER BY s.tname, s.name""", id)
     steps = q("SELECT title, body FROM steps WHERE project_id=? ORDER BY pos", id)
-    return jsonify({**project_json(p), "notes": p["notes"],
+    return jsonify({**project_json(p, [r["tag"] for r in q("SELECT tag FROM project_tags WHERE project_id=? ORDER BY tag", id)]), "notes": p["notes"],
                     "materials": [{"item_id": m["id"], "name": m["name"], "colour": m["colour"], "type": m["tname"], "collection": m["pname"],
                                    "unit": m["unit"], "reserved": m["reserved"], "used": m["used"] if m["consumed"] else None,
                                    "in_stock": m["qty"], "free": m["free"]} for m in mats],

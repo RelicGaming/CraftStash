@@ -38,7 +38,12 @@ def m_stale_reservations(c):   # v7: view-only (or removed) users no longer keep
                    WHERE p.user_id<>pr.user_id AND NOT EXISTS(
                      SELECT 1 FROM pool_shares s WHERE s.pool_id=p.id AND s.user_id=pr.user_id AND s.can_edit=1))""")
 
-STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations]
+def m_project_dates(c):   # v8: projects get created/updated (project_tags is a new table, so the schema script makes it)
+    add_col(c, "projects", "created", "TEXT NOT NULL DEFAULT ''")
+    add_col(c, "projects", "updated", "TEXT NOT NULL DEFAULT ''")
+    c.execute("UPDATE projects SET created=?, updated=? WHERE created=''", (dbx.now(), dbx.now()))
+
+STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations, m_project_dates]
 
 def statements(script):
     """Split a SQL script into single statements, so it can run inside one transaction (executescript would commit)."""
@@ -82,7 +87,16 @@ def run(path, schema, backups=None):
 
 # Upgrades for server databases, applied after the version their schema file starts at (len(STEPS) today).
 # Each is a function of the dbx connection; add new ones to the end, and the matching change to sqlite.sql's STEPS.
-SERVER_STEPS = []
+def s_project_dates(c):   # a fresh server database already has the columns from its schema file, so check first
+    have = {r[0].lower() for r in c.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='projects' AND table_schema=" +
+        ("current_schema()" if c.engine == "postgres" else "DATABASE()")).fetchall()}
+    for col in ("created", "updated"):
+        if col not in have:
+            c.execute(f"ALTER TABLE projects ADD COLUMN {col} " + ("TEXT" if c.engine == "postgres" else "VARCHAR(19)") + " NOT NULL DEFAULT ''")
+    c.execute("UPDATE projects SET created=?, updated=? WHERE created=''", (dbx.now(), dbx.now()))
+
+SERVER_STEPS = [s_project_dates]
 
 def schema_file(engine):
     return (Path(__file__).parent / "schema" / f"{engine}.sql").read_text()

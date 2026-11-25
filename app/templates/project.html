@@ -47,6 +47,10 @@
 <label class="field"><span>Photos (optional, up to {{ max_photos }})</span><input type="file" name="photos" accept="image/*" multiple></label>
 <div><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Add step</button></div></form>{% endif %}</section>
 </div><div>
+<section class="panel tags-panel"><div class="panel-head"><h2>Tags</h2></div>
+<div class="tags">{% for t in tags %}<span class="pill tag"><a href="{{ url_for('projects', tag=t) }}">#{{ t }}</a>{% if mine %}<form class="noprint" method="post" action="{{ url_for('delete_tag', id=p.id) }}">{{ csrf }}<input type="hidden" name="tag" value="{{ t }}"><button aria-label="Remove tag {{ t }}">&times;</button></form>{% endif %}</span>{% else %}<span class="muted">{{ 'No tags yet.' if mine else 'No tags.' }}</span>{% endfor %}</div>
+{% if mine %}<form class="inline noprint mt-12" method="post" action="{{ url_for('add_tags', id=p.id) }}">{{ csrf }}<input name="tags" list="known-tags" maxlength="200" placeholder="gifts, baby, winter" aria-label="Add tags (separate with commas)" autocomplete="off"><button class="btn secondary">Add</button>
+<datalist id="known-tags">{% for t in known_tags if t not in tags %}<option value="{{ t }}">{% endfor %}</datalist></form>{% endif %}</section>
 {% if mine %}<form class="panel noprint" method="post" action="{{ url_for('project_update', id=p.id) }}">{{ csrf }}<div class="panel-head"><h2>Details</h2></div>
 <div class="form-grid"><label class="field wide"><span>Name</span><input name="name" value="{{ p.name }}" maxlength="100"></label>
 {% if p.status not in ('done', 'template') %}<label class="field wide"><span>Status</span><select name="status"><option value="planned" {{ 'selected' if p.status == 'planned' }}>Planned</option><option value="active" {{ 'selected' if p.status == 'active' }}>Active</option></select></label>{% endif %}

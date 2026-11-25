@@ -11,6 +11,16 @@
     const f = e.target;
     if (f.dataset.confirm && !(e.submitter && e.submitter.dataset.confirm) && !confirm(f.dataset.confirm)) e.preventDefault();
   });
+  // <form data-remember="name"> (GET filters): the last choice is kept in this browser and used when the page is opened
+  // with no choices in the address. "Clear" links (data-forget) throw it away.
+  const memory = (() => { try { return window.localStorage; } catch (e) { return null; } })();
+  const remembered = document.querySelector('form[data-remember]');
+  if (remembered && memory) {
+    const key = 'cs.' + remembered.dataset.remember;
+    if (!location.search) { const saved = memory.getItem(key); if (saved) location.replace(location.pathname + saved); }
+    else memory.setItem(key, location.search);
+    document.addEventListener('click', e => { if (e.target.closest('[data-forget]')) memory.removeItem(key); });
+  }
   // <button data-print>
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) window.print(); });
 
