@@ -232,6 +232,16 @@ def purge_step_photos(scope, id):
     for r in q("SELECT sp.stored FROM step_photos sp JOIN steps s ON s.id=sp.step_id JOIN projects p ON p.id=s.project_id WHERE " + STEP_PHOTO_SCOPES[scope], id):
         (PHOTOS / r["stored"]).unlink(missing_ok=True)
 
+def purge_wish_photos(user_id):    # before an account goes: its wishes go with it (ON DELETE CASCADE)
+    for r in q("SELECT photo FROM wishes WHERE user_id=? AND photo<>''", user_id): (PHOTOS / r["photo"]).unlink(missing_ok=True)
+
+def wish_count():                  # open wishes the user can see (the Wishlist tab's count)
+    me = uid(); return db().execute("SELECT COUNT(*) FROM wishes w WHERE w.got=0 AND " + SEE_WISH, (me, me)).fetchone()[0]
+
+def open_wish_items():             # {item id: wish id} for open wishes that watch an item (the restock list links them)
+    me = uid(); rows = q("SELECT w.id, w.item_id FROM wishes w WHERE w.got=0 AND w.item_id IS NOT NULL AND " + SEE_WISH, me, me)
+    return {r["item_id"]: r["id"] for r in rows}
+
 def drop_reservations(pool_id, user_id):   # someone lost access to a collection: their open reservations on it go too
     run("""DELETE FROM assignments WHERE consumed=0 AND project_id IN (SELECT id FROM projects WHERE user_id=?)
            AND item_id IN (SELECT i.id FROM items i JOIN types t ON t.id=i.type_id WHERE t.pool_id=?)""", user_id, pool_id)
@@ -302,6 +312,10 @@ def headers(r):
 
 LOW = "(s.qty<=0 OR (s.low_at IS NOT NULL AND s.qty<=s.low_at) OR s.free<0)"
 CAN_EDIT = "EXISTS(SELECT 1 FROM access x WHERE x.pool_id=s.pool_id AND x.user_id=? AND x.can_edit=1)"   # s = a stock row
+# w = a wishes row. Its owner sees and changes it; so does anyone who can see (or edit) the collection its type is in.
+SEE_WISH = "(w.user_id=? OR EXISTS(SELECT 1 FROM types wt JOIN access x ON x.pool_id=wt.pool_id WHERE wt.id=w.type_id AND x.user_id=?))"
+EDIT_WISH = ("(w.user_id=? OR EXISTS(SELECT 1 FROM types wt JOIN access x ON x.pool_id=wt.pool_id WHERE wt.id=w.type_id AND x.user_id=?"
+             " AND x.can_edit=1))")
 
 @app.context_processor
 def ctx():

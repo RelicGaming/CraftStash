@@ -2,7 +2,8 @@
 {% block body %}
 {% set editable = rows|selectattr('can_edit')|list %}
 <div class="page-head"><h1>Shopping list</h1><span class="grow"></span>{% if rows %}<div class="actions"><button class="btn secondary" id="copy" type="button"><svg class="i"><use href="#i-file"/></svg>Copy as text</button></div>{% endif %}</div>
-<p class="muted" style="margin-top:-8px">Supplies that are out of stock, at or below their low-stock level, or needed by projects beyond what you have. Set the level when you edit an item.</p>
+{% include "shop_tabs.html" %}
+<p class="muted">Supplies that are out of stock, at or below their low-stock level, or needed by projects beyond what you have. Set the level when you edit an item.</p>
 {% if editable %}<p class="muted small noprint">Back from the shops? Enter what you bought next to each item, or use the suggested amounts, then add it all to stock at once.</p>{% endif %}
 <form method="post" action="{{ url_for('restock') }}" id="restock">{{ csrf }}
 {% for name, items in rows|groupby('pname') %}
@@ -10,7 +11,8 @@
 {% for s in items %}<div class="list-row" data-line="{{ s.name }}{% if s.colour %} ({{ s.colour }}){% endif %}, have {{ '%g'|format(s.qty) }} {{ s.unit }}{% if s.free < 0 %}, need {{ '%g'|format(-s.free) }} more{% endif %}">
 <span class="sw-dot{{ '' if s.hex else ' none' }}" {% if s.hex %}style="--c:{{ s.hex }}"{% endif %}></span>
 <div class="grow">{% if s.can_edit %}<a href="{{ url_for('item_edit', iid=s.id) }}"><strong>{{ s.name }}</strong></a>{% else %}<strong>{{ s.name }}</strong>{% endif %}{% if s.colour %} <span class="muted">{{ s.colour }}</span>{% endif %}
-<div class="muted small">{{ s.tname }}{% if s.price is not none %}, {{ s.price|money }} per {{ s.unit }}{% endif %}</div></div>
+<div class="muted small">{{ s.tname }}{% if s.price is not none %}, {{ s.price|money }} per {{ s.unit }}{% endif %}</div>
+{% if watching.get(s.id) %}<a class="small noprint" href="{{ url_for('wish', wid=watching[s.id]) }}">On the wishlist</a>{% elif s.can_edit %}<a class="small noprint" href="{{ url_for('wish_new', item=s.id, qty='%g'|format(suggest(s))) }}">Watch the price</a>{% endif %}</div>
 <div style="text-align:right"><strong>{{ '%g'|format(s.qty) }} {{ s.unit }}</strong><div class="small">{% if s.free < 0 %}<span class="pill bad">Short by {{ '%g'|format(-s.free) }} {{ s.unit }}</span>{% elif s.qty <= 0 %}<span class="pill bad">Out of stock</span>{% else %}<span class="pill warn">Low, level {{ '%g'|format(s.low_at) }}</span>{% endif %}</div>
 {% if s.can_edit %}{% set sg = '%g'|format(suggest(s)) %}<input class="noprint bought" name="bought_{{ s.id }}" type="number" step="any" min="0" inputmode="decimal" placeholder="Buy {{ sg }}" data-suggest="{{ sg }}" aria-label="Amount of {{ s.name }} bought, in {{ s.unit }}">{% endif %}</div></div>{% endfor %}</section>
 {% else %}<div class="panel stitch"><h3>Nothing to buy</h3><p class="muted">Everything is above its low-stock level.</p></div>{% endfor %}

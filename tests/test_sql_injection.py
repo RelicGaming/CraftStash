@@ -12,7 +12,8 @@ SQL_CALLS = {"execute", "executemany", "q", "get", "run"}
 SAFE_NAMES = {
     "LIKE": "dbx.like_op(): a fixed operator per engine",
     "GROUP_HEX": "dbx.group_concat_distinct('s.hex'), checked identifier",
-    "LOW": "module constant", "CAN_EDIT": "module constant", "SET_SETTING": "dbx.upsert() with fixed names",
+    "LOW": "module constant", "CAN_EDIT": "module constant", "SEE_WISH": "module constant", "EDIT_WISH": "module constant",
+    "WISH_SELECT": "module constant", "SET_SETTING": "dbx.upsert() with fixed names",
     "cond": "match(): built from LIKE, dbx.json_get on a fixed column, and ? placeholders",
     "sql": "built from string literals, match() and SORTS[...] in the same function",
     "t": "a table from dbx.TABLES (fixed list)", "table": "migrations: fixed table names from STEPS",

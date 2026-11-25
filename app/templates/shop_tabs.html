@@ -1,0 +1,4 @@
+{# The two halves of the Shopping page: what to restock, and what you want but don't own yet. #}
+<nav class="subtabs noprint" aria-label="Shopping">
+<a href="{{ url_for('shopping') }}" {% if request.endpoint == 'shopping' %}aria-current="page"{% endif %}>Restock{% if shop_count %} <span class="pill warn">{{ shop_count }}</span>{% endif %}</a>
+<a href="{{ url_for('wishlist') }}" {% if request.endpoint != 'shopping' %}aria-current="page"{% endif %}>Wishlist{% if wish_n %} <span class="pill">{{ wish_n }}</span>{% endif %}</a></nav>

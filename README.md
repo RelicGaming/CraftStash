@@ -6,6 +6,7 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 - [Choose your setup](#choose-your-setup)
 - [Install](#install): [docker run](#docker-run) · [Docker Compose](#docker-compose) · [Dockhand](#dockhand) · [Unraid](#unraid) · [Portainer](#portainer)
 - [First start](#first-start)
+- [Project tags and filters](#project-tags-and-filters) · [Wishlist](#wishlist)
 - [Storage](#storage) · [Database](#database) · [Reverse proxy](#reverse-proxy) · [Single sign-on](#single-sign-on)
 - [Environment variables](#environment-variables)
 - [Backups and restore](#backups-and-restore) · [API and Home Assistant](#api-and-home-assistant) · [Self-test](#self-test)
@@ -16,6 +17,7 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 - **Search everything**: one search box across every collection you own or that's shared with you, plus project names and notes.
 - Search a collection for any text or one field (`Width:150`), sort, export or **import CSV** (with a check-only mode), see the **activity** history and undo stock changes.
 - **Shopping list** across every collection you can use: out of stock, low, or short for a project. Enter what you bought (or take the suggested amounts) and restock everything in one go. Assigning more than you have is allowed and the gap lands on the list.
+- **Wishlist** next to the shopping list: snap a photo of something you want, note the shop and price, add more shops to compare, then **Bought it** turns it into stock. See [Wishlist](#wishlist).
 - **Projects**: reserve supplies, **templates** (save a project as a reusable pattern, start new projects from it; templates hold no stock), numbered steps (each with up to 6 photos, counted towards your storage limit), attached guides, estimated cost, print layout, duplicate, complete (enter how much of each material you actually used and only that is deducted, or keep stock untouched) and reopen (puts it back).
 - **Tags and filters** for projects: tag them (`gifts`, `baby`), then search, filter by status, tag or the collection they use, group and sort. A filtered view has its own address, so you can bookmark it.
 - **Sharing**: collections view-only or can-edit; projects read-only, and a viewer can save their own copy. People can leave what's shared with them.
@@ -174,6 +176,16 @@ mapped, free space) and a `[config]` line (database, proxy trust, path prefix, l
 Open a project and add tags in the **Tags** panel (separate several with commas; the box suggests tags you've used before). Tags are lower case, up to 30 letters, numbers, spaces, `-` or `_`, and a project holds up to 20. People a project is shared with can see its tags but not change them.
 
 The **Projects** page has a filter bar: search (names, notes and step text), status chips, tag chips (a project must have *all* the tags you pick), **Uses collection**, **Group by** (status, tag, or nothing) and **Sort** (name, recently updated, newest). With nothing chosen it looks as it always did. The address holds your choices (`/projects?tag=gifts&status=active`), so a filtered view can be bookmarked, and the browser remembers your last choice until you press **Clear**. Saving a project as a template or copying it keeps its tags.
+
+## Wishlist
+The **Shopping** page has two tabs: **Restock** (the shopping list) and **Wishlist**, for things you want but don't own yet.
+
+- **Add a wish** is made for a phone in a shop: take a photo (the swatch colour is suggested from it), type what it is, the shop and the price. **More details** holds the colour, how many, a link, the date you saw it, which collection and type it would go into, and a project it's for.
+- Open a wish to add more **shops**. Each has a price, a date, an optional link and a note. The cheapest one is highlighted, and the list shows it with "+2 other shops". Prices use the currency symbol set by the admin.
+- **Watch the price** on a restock row, or **Add to wishlist** on a project material you're short of, makes a wish for that item. **Add a wish for this project** on a project page makes one for something new, and the project lists its open wishes.
+- **Bought it** asks how many and from which shop. A wish that watches an item adds to that item's stock and sets its price to what you paid. Any other wish becomes a new item in the type you pick, with its name, colour, photo and price, and "Bought … at …" in its notes. Either way it goes in the collection's activity history. The wish moves to **Show what you bought**, and **Put back on the wishlist** reopens it.
+- A wish is private to you, unless it's filed under a type: then everyone who can see that collection sees it, and people who can edit the collection can change it or buy it. Only you see which of your projects it's for, unless you share the project.
+- Wish photos are kept in the photos folder (`PHOTOS_DIR`), like item photos, and are part of backups, exports and `manage.py cleanup`. A wish keeps up to 30 shops, and an account up to 1000 wishes.
 
 ## Storage
 Everything is kept under `/data` by default. Each kind of file can be mapped to its own volume or host folder instead:
@@ -524,6 +536,10 @@ Send the token with every request as `Authorization: Bearer cs_…`. Responses a
 | `POST /api/v1/items/<id>/adjust` | `{"action": "use", "amount": 2}` or `"add"`. Add `"place": "Shelf B"` for one of its other places |
 | `GET /api/v1/collections`, `GET /api/v1/collections/<id>` | Collections, and one collection with its types, fields and items |
 | `GET /api/v1/projects`, `GET /api/v1/projects/<id>` | Projects (each with its tags and dates), and one project with its materials and steps. Filters: `status=` (repeat for several), `tag=` (repeat: all must match), `q=` (name, notes and steps), `pool=<collection id>` (uses supplies from it), `sort=name\|updated\|newest` |
+| `GET /api/v1/wishlist`, `GET /api/v1/wishlist/<id>` | Open wishes (`?got=1` for the ones bought), each with its `sightings` (shops), cheapest first, and `cheapest` |
+| `POST /api/v1/wishlist` | Add a wish: `{"name": "Chunky wool", "qty": 2, "shop": "Spotlight", "price": 12.5}`. Also `colour`, `hex`, `unit`, `notes`, `type_id`, `item_id` (watch an item), `project_id`, and for the shop `url`, `seen` (`YYYY-MM-DD`) and `shop_notes` |
+| `POST /api/v1/wishlist/<id>/sightings` | Add a shop: `{"shop": "Lincraft", "price": 9.95, "url": "https://…", "seen": "2026-11-25", "notes": "On sale"}` |
+| `POST /api/v1/wishlist/<id>/bought` | Mark it bought: `{"qty": 2, "sighting": <shop id> or "none", "type_id": 1}` (all optional: the cheapest shop and the wish's own type are used). Returns the wish and the item |
 
 Stock changes made through the API go into the collection's activity history under your name, so they can be undone there. After 8 wrong tokens from one address in 10 minutes, that address gets `429` responses until the 10 minutes are up.
 

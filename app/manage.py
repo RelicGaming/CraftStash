@@ -43,7 +43,8 @@ def restore(a):
 
 def cleanup(a):
     c = conn(); used = ({r[0] for r in c.execute("SELECT stored FROM files")} | {r[0] for r in c.execute("SELECT photo FROM items WHERE photo<>''")}
-                        | {r[0] for r in c.execute("SELECT stored FROM step_photos")})      # step photos were missing here before
+                        | {r[0] for r in c.execute("SELECT stored FROM step_photos")}       # step photos were missing here before
+                        | {r[0] for r in c.execute("SELECT photo FROM wishes WHERE photo<>''")})
     n = 0
     for p, _ in backup._upload_files(P):
         if p.name not in used and time.time() - p.stat().st_mtime > 3600:

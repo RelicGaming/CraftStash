@@ -308,6 +308,18 @@ def _(t):
     u.post(f"/items/{iid}/adjust", {"amount": "99", "action": "use"}); assert "Out of stock" in page(u, pid), "no out-of-stock label"
     u.post(f"/items/{iid}/adjust", {"amount": "10", "action": "add"}); assert "Merino" not in u.get("/shopping").text, "restock did not clear the list"
 
+@check("Stock", "Wishlist: quick add, cheapest shop, 'Bought it' makes an item; private to its owner")
+def _(t):
+    u, s = t.user(), t.user(); pid, tid, iid = setup_stash(u)
+    r = u.post("/wishlist/new", {"name": "Alpaca", "shop": "Shop A", "price": "8", "type_id": str(tid)}, follow=False)
+    m = re.search(r"/wishlist/(\d+)", r.loc or ""); assert m, "wish was not created"; wid = int(m[1])
+    u.post(f"/wishlist/{wid}/sightings", {"shop": "Shop B", "price": "6.5"})
+    assert "at Shop B" in u.get("/wishlist").text and "+1 other shop" in u.get("/wishlist").text, "cheapest shop not shown"
+    assert s.get(f"/wishlist/{wid}").status == 404, "a stranger could see the wish"
+    r = u.post(f"/wishlist/{wid}/bought", {"qty": "2"}, follow=False); m = re.search(r"/items/(\d+)/edit", r.loc or "")
+    assert m and "Alpaca" in page(u, pid), "'Bought it' did not make an item"        # (that page also shows the flash message)
+    assert "Alpaca" not in u.get("/wishlist").text and "Alpaca" in u.get("/wishlist?show=got").text, "bought wish still open"
+
 @check("CSV", "Export format, swatch column and formula safety")
 def _(t):
     u = t.user(); pid, tid, iid = setup_stash(u, has_hex="1", hex="#112233"); u.post(f"/types/{tid}/items/new", {"name": "=SUM(1)", "qty": "1"})

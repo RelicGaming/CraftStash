@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS api_tokens(id BIGINT AUTO_INCREMENT PRIMARY KEY, user
   INDEX ix_api_tokens_user (user_id), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS user_identities(id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, issuer VARCHAR(255) NOT NULL, subject VARCHAR(255) NOT NULL, label TEXT NOT NULL DEFAULT (''), created VARCHAR(19) NOT NULL DEFAULT (DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:%i:%s')),
   UNIQUE KEY uq_identity (issuer, subject), INDEX ix_user_identities_user (user_id), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS wishes(id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, name TEXT NOT NULL, colour TEXT NOT NULL DEFAULT (''), hex TEXT NOT NULL DEFAULT (''), qty DOUBLE NOT NULL DEFAULT 1, unit TEXT NOT NULL DEFAULT (''), notes TEXT NOT NULL DEFAULT (''), photo TEXT NOT NULL DEFAULT (''), type_id BIGINT NULL, item_id BIGINT NULL, project_id BIGINT NULL, got INTEGER NOT NULL DEFAULT 0, created VARCHAR(19) NOT NULL DEFAULT '', got_at VARCHAR(19) NOT NULL DEFAULT '',
+  INDEX ix_wishes_user (user_id), INDEX ix_wishes_type (type_id), INDEX ix_wishes_item (item_id), INDEX ix_wishes_project (project_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (type_id) REFERENCES types(id) ON DELETE SET NULL,
+  FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE SET NULL, FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS wish_sightings(id BIGINT AUTO_INCREMENT PRIMARY KEY, wish_id BIGINT NOT NULL, shop TEXT NOT NULL DEFAULT (''), url TEXT NOT NULL DEFAULT (''), price DOUBLE, seen VARCHAR(10) NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT (''),
+  INDEX ix_wish_sightings_wish (wish_id), FOREIGN KEY (wish_id) REFERENCES wishes(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE OR REPLACE VIEW access AS
   SELECT id AS pool_id, user_id, 1 AS can_edit, 1 AS is_owner FROM pools

@@ -23,12 +23,19 @@
 {% for a in assigned %}<div class="list-row mat-row"><span class="sw-dot{{ '' if a.hex else ' none' }}" {% if a.hex %}style="--c:{{ a.hex }}"{% endif %}></span>
 <div class="grow"><strong>{{ a.name }}</strong>{% if a.colour %} <span class="muted">{{ a.colour }}</span>{% endif %}<div class="muted small">{{ a.tname }}{% if a.subtype %}, {{ a.subtype }}{% endif %}</div></div>
 <strong>{{ '%g'|format(a.qty) }} {{ a.unit }}</strong>{% if a.consumed %}{% if a.used %}<span class="pill ok">{% if (a.used - a.qty)|abs > 1e-9 %}Used {{ '%g'|format(a.used) }}{% else %}Used{% endif %}</span>{% else %}<span class="pill">Not deducted</span>{% endif %}{% elif mine and a.free < 0 and p.status != 'template' %}<span class="pill bad">Short by {{ '%g'|format(-a.free) }}</span>{% endif %}
+{% if mine and not a.consumed and a.can_edit and a.free < 0 and p.status not in ('template', 'done') %}<a class="btn ghost sm noprint" href="{{ url_for('wish_new', item=a.item_id, project=p.id, qty='%g'|format(-a.free)) }}">Add to wishlist</a>{% endif %}
 {% if mine and not a.consumed %}<form class="noprint" method="post" action="{{ url_for('unassign', aid=a.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form>{% endif %}</div>
 {% else %}<p class="muted">{{ 'Nothing assigned yet. Pick supplies below.' if mine else 'No materials listed.' }}</p>{% endfor %}
 {% if mine and p.status != 'done' %}<form class="inline noprint mt-14" method="post" action="{{ url_for('assign', id=p.id) }}">{{ csrf }}
 <select name="item_id" required aria-label="Item" style="flex:3 1 240px"><option value="">Choose a supply</option>
 {% for s in avail %}<option value="{{ s.id }}">{{ s.pname }} / {{ s.tname }}: {{ s.name }} {{ s.colour }} ({{ '%g'|format(s.free) }} {{ s.unit }} free)</option>{% endfor %}</select>
-<input name="qty" type="number" step="any" min="0" placeholder="Amount" required aria-label="Amount" style="flex:1 1 90px"><button class="btn">Assign</button></form>{% endif %}</section>
+<input name="qty" type="number" step="any" min="0" placeholder="Amount" required aria-label="Amount" style="flex:1 1 90px"><button class="btn">Assign</button></form>{% endif %}
+{% if wishes or (mine and p.status not in ('template', 'done')) %}<h3 class="mt-14">On the wishlist</h3>
+{% for w in wishes %}<div class="list-row"><span class="sw-dot{{ '' if w.hex else ' none' }}" {% if w.hex %}style="--c:{{ w.hex }}"{% endif %}></span>
+<div class="grow"><a href="{{ url_for('wish', wid=w.id) }}"><strong>{{ w.name }}</strong></a>{% if w.colour %} <span class="muted">{{ w.colour }}</span>{% endif %}</div>
+<span class="small">{{ '%g'|format(w.qty) }}{% if w.unit %} {{ w.unit }}{% endif %}{% if w.best is not none %}, from {{ w.best|money }}{% endif %}</span></div>
+{% else %}<p class="muted small m0">Nothing yet. Add things you still need to buy for this project.</p>{% endfor %}
+{% if mine and p.status not in ('template', 'done') %}<a class="btn secondary sm noprint mt-8" href="{{ url_for('wish_new', project=p.id) }}"><svg class="i"><use href="#i-plus"/></svg>Add a wish for this project</a>{% endif %}{% endif %}</section>
 
 <section class="panel" id="steps"><div class="panel-head"><h2>Steps</h2></div>
 {% if steps %}<ol class="steps">{% for s in steps %}{% set sp = photos.get(s.id, []) %}<li class="step" id="step-{{ s.id }}"><div>{% if s.title %}<strong>{{ s.title }}</strong>{% endif %}<div class="step-body">{{ s.body }}</div>
