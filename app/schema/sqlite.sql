@@ -50,3 +50,12 @@ CREATE INDEX IF NOT EXISTS ix_api_tokens_user ON api_tokens(user_id);
 -- Single sign-on: which provider account (issuer + subject) logs in as which user.
 CREATE TABLE IF NOT EXISTS user_identities(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users ON DELETE CASCADE, issuer TEXT NOT NULL, subject TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', created TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(issuer, subject));
 CREATE INDEX IF NOT EXISTS ix_user_identities_user ON user_identities(user_id);
+-- Wishlist: things someone wants but doesn't own yet (or an item they're watching the price of), and where they saw them.
+-- A wish linked to a type is visible to everyone who can see that type's collection; otherwise only to its owner.
+CREATE TABLE IF NOT EXISTS wishes(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users ON DELETE CASCADE, name TEXT NOT NULL, colour TEXT NOT NULL DEFAULT '', hex TEXT NOT NULL DEFAULT '', qty REAL NOT NULL DEFAULT 1, unit TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', photo TEXT NOT NULL DEFAULT '', type_id INTEGER REFERENCES types ON DELETE SET NULL, item_id INTEGER REFERENCES items ON DELETE SET NULL, project_id INTEGER REFERENCES projects ON DELETE SET NULL, got INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL DEFAULT '', got_at TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS ix_wishes_user ON wishes(user_id);
+CREATE INDEX IF NOT EXISTS ix_wishes_type ON wishes(type_id);
+CREATE INDEX IF NOT EXISTS ix_wishes_item ON wishes(item_id);
+CREATE INDEX IF NOT EXISTS ix_wishes_project ON wishes(project_id);
+CREATE TABLE IF NOT EXISTS wish_sightings(id INTEGER PRIMARY KEY, wish_id INTEGER NOT NULL REFERENCES wishes ON DELETE CASCADE, shop TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', price REAL, seen TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS ix_wish_sightings_wish ON wish_sightings(wish_id);

@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block title %}Wishlist - Craft Stash{% endblock %}
+{% block body %}
+<div class="page-head"><h1>Wishlist</h1><span class="grow"></span><div class="actions">
+{% if rows %}<button class="btn secondary" id="copy" type="button"><svg class="i"><use href="#i-file"/></svg>Copy as text</button>{% endif %}
+<a class="btn" href="{{ url_for('wish_new') }}"><svg class="i"><use href="#i-plus"/></svg>Add a wish</a></div></div>
+{% include "shop_tabs.html" %}
+<p class="muted">{% if got %}Wishes you've bought. They stay here for the record.{% else %}Things you want but don't have yet, or want to watch the price of, and the shops you saw them at.{% endif %}
+<a class="noprint" href="{{ url_for('wishlist') if got else url_for('wishlist', show='got') }}">{{ 'Back to the open wishes' if got else 'Show what you bought' }}</a></p>
+{% if rows %}<section class="panel">
+{% for w in rows %}{% set ss = sights[w.id] %}{% set best = ss[0] if ss and ss[0].price is not none else none %}
+<div class="list-row wish-row" data-line="{{ w.name }}{% if w.colour %} ({{ w.colour }}){% endif %}, {{ '%g'|format(w.qty) }}{% if w.unit %} {{ w.unit }}{% endif %}{% if best %}, {{ best.price|money }}{% if best.shop %} at {{ best.shop }}{% endif %}{% endif %}">
+{% if w.photo %}<img class="wish-thumb" src="{{ url_for('wish_photo', wid=w.id) }}" alt="" loading="lazy">{% elif w.item_photo %}<img class="wish-thumb" src="{{ url_for('photo', iid=w.item_id) }}" alt="" loading="lazy">{% else %}<span class="wish-thumb none"><span class="sw-dot{{ '' if w.hex else ' none' }}" {% if w.hex %}style="--c:{{ w.hex }}"{% endif %}></span></span>{% endif %}
+<div class="grow"><a href="{{ url_for('wish', wid=w.id) }}"><strong>{{ w.name }}</strong></a>{% if w.colour %} <span class="muted">{{ w.colour }}</span>{% endif %}
+<div class="muted small">{{ '%g'|format(w.qty) }}{% if w.unit %} {{ w.unit }}{% endif %}{% if w.tname %}, {{ w.pname }} / {{ w.tname }}{% endif %}{% if w.project_name %}, for {{ w.project_name }}{% endif %}{% if w.owner != g.user.username %}, {{ w.owner }}'s{% endif %}{% if w.got and w.got_at %}, bought {{ w.got_at[:10] }}{% endif %}</div></div>
+<div class="best">{% if best %}<strong>{{ best.price|money }}</strong>{% if best.shop %} <span class="small">at {{ best.shop }}</span>{% endif %}{% if ss|length > 1 %}<div class="muted small">+{{ ss|length - 1 }} other shop{{ 's' if ss|length > 2 }}</div>{% endif %}
+{% elif ss %}<span class="small">{{ ss[0].shop or 'Seen' }}</span>{% if ss|length > 1 %}<div class="muted small">+{{ ss|length - 1 }} other shop{{ 's' if ss|length > 2 }}</div>{% endif %}
+{% else %}<span class="muted small">No shops yet</span>{% endif %}</div></div>{% endfor %}</section>
+{% else %}<div class="panel stitch"><h3>{{ 'Nothing bought yet' if got else 'Nothing on the wishlist' }}</h3>
+<p class="muted">{% if got %}When you mark a wish as bought it moves here.{% else %}Out shopping and spotted something? Take a photo, note the shop and the price, and compare later.{% endif %}</p>
+{% if not got %}<a class="btn" href="{{ url_for('wish_new') }}"><svg class="i"><use href="#i-plus"/></svg>Add a wish</a>{% endif %}</div>{% endif %}
+{% endblock %}

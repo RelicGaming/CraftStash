@@ -43,7 +43,10 @@ def m_project_dates(c):   # v8: projects get created/updated (project_tags is a 
     add_col(c, "projects", "updated", "TEXT NOT NULL DEFAULT ''")
     c.execute("UPDATE projects SET created=?, updated=? WHERE created=''", (dbx.now(), dbx.now()))
 
-STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations, m_project_dates]
+def m_wishlist(c):   # v9: wishes and wish_sightings are new tables, so the schema script makes them on every engine.
+    """Nothing to change in existing rows. The step marks the version, so an upgrade takes its usual backup first."""
+
+STEPS = [m_fields, m_low, m_theme, m_active, m_photo, m_used, m_stale_reservations, m_project_dates, m_wishlist]
 
 def statements(script):
     """Split a SQL script into single statements, so it can run inside one transaction (executescript would commit)."""

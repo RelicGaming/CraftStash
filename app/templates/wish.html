@@ -1,0 +1,51 @@
+{% extends "base.html" %}{% block title %}{{ w.name }} - Wishlist - Craft Stash{% endblock %}
+{% block body %}
+{% set best = sights[0] if sights and sights[0].price is not none else none %}
+<a class="back" href="{{ url_for('wishlist', show='got') if w.got else url_for('wishlist') }}"><svg class="i"><use href="#i-chev-l"/></svg>Wishlist</a>
+<div class="page-head"><h1>{{ w.name }}{% if w.colour %} <span class="muted">{{ w.colour }}</span>{% endif %}</h1><span class="grow"></span>
+{% if can_edit %}<div class="actions"><a class="btn secondary sm" href="{{ url_for('wish_edit', wid=w.id) }}">Edit</a></div>{% endif %}</div>
+{% if w.got %}<div class="notice"><svg class="i"><use href="#i-check"/></svg><span>Bought{% if w.got_at %} on {{ w.got_at[:10] }}{% endif %}.{% if w.item_id %} <a href="{{ url_for('item_edit', iid=w.item_id) }}">See it in your stash</a>.{% endif %}</span>
+{% if can_edit %}<form method="post" action="{{ url_for('wish_reopen', wid=w.id) }}">{{ csrf }}<button class="btn ghost sm">Put back on the wishlist</button></form>{% endif %}</div>{% endif %}
+<div class="cols"><div>
+<section class="panel"><div class="list-row">
+{% if w.photo %}<img class="wish-photo" src="{{ url_for('wish_photo', wid=w.id) }}" alt="Photo of {{ w.name }}">{% elif w.item_photo %}<img class="wish-photo" src="{{ url_for('photo', iid=w.item_id) }}" alt="Photo of {{ w.name }}">{% endif %}</div>
+<dl class="facts">
+<dt>Wanted</dt><dd>{{ '%g'|format(w.qty) }}{% if w.unit %} {{ w.unit }}{% endif %}</dd>
+{% if w.hex %}<dt>Swatch</dt><dd><span class="sw-dot" style="--c:{{ w.hex }}"></span> {{ w.hex }}</dd>{% endif %}
+<dt>Goes into</dt><dd>{% if w.tname %}{{ w.pname }} / {{ w.tname }}{% else %}<span class="muted">Not filed yet</span>{% endif %}</dd>
+{% if w.item_name and not w.got %}<dt>Watching</dt><dd>{% if watched %}<a href="{{ url_for('item_edit', iid=w.item_id) }}">{{ w.item_name }}</a>, {{ '%g'|format(watched.qty) }} {{ watched.unit }} in stock{% else %}{{ w.item_name }}{% endif %}</dd>{% endif %}
+{% if w.project_name %}<dt>For</dt><dd><a href="{{ url_for('project', id=w.project_id) }}">{{ w.project_name }}</a></dd>{% endif %}
+{% if w.owner != g.user.username %}<dt>Added by</dt><dd>{{ w.owner }}</dd>{% endif %}
+{% if w.created %}<dt>Added</dt><dd>{{ w.created[:10] }}</dd>{% endif %}
+</dl>
+{% if w.notes %}<p class="step-body">{{ w.notes }}</p>{% endif %}</section>
+
+<section class="panel" id="shops"><div class="panel-head"><h2>Shops</h2>{% if best %}<span class="muted small">Cheapest {{ best.price|money }}{% if best.shop %} at {{ best.shop }}{% endif %}</span>{% endif %}</div>
+{% if sights %}<div class="scroll"><table class="shops"><thead><tr><th>Shop</th><th>Price each</th><th>Seen</th><th class="noprint"></th></tr></thead><tbody>
+{% for s in sights %}<tr class="{{ 'cheapest' if best and s.id == best.id }}"><td>{% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ s.shop or s.url }}</a>{% else %}{{ s.shop or '-' }}{% endif %}{% if s.notes %}<div class="muted small">{{ s.notes }}</div>{% endif %}</td>
+<td class="price">{{ s.price|money if s.price is not none else '-' }}</td><td class="seen">{{ s.seen }}</td>
+<td class="noprint">{% if can_edit %}<form method="post" action="{{ url_for('wish_sighting_del', sid=s.id) }}" data-confirm="Remove {{ s.shop or 'this shop' }}?">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="muted">No shops yet. Add where you saw it and for how much.</p>{% endif %}
+{% if can_edit %}<form class="form-grid mt-14 noprint" method="post" action="{{ url_for('wish_sighting', wid=w.id) }}">{{ csrf }}
+<label class="field"><span>Shop</span><input name="shop" maxlength="80" placeholder="Spotlight"></label>
+<label class="field"><span>Price each</span><input name="price" type="number" step="0.01" min="0" inputmode="decimal"></label>
+<label class="field"><span>Seen on</span><input name="seen" type="date" value="{{ today }}"></label>
+<label class="field"><span>Link</span><input name="url" type="url" maxlength="500" placeholder="https://"></label>
+<label class="field wide"><span>Notes</span><input name="notes" maxlength="300" placeholder="On sale until Friday"></label>
+<div class="field wide"><button class="btn secondary"><svg class="i"><use href="#i-plus"/></svg>Add shop</button></div></form>{% endif %}</section>
+</div><div>
+
+{% if can_edit and not w.got %}<section class="panel" id="bought"><div class="panel-head"><h2>Bought it?</h2></div>
+<form method="post" action="{{ url_for('wish_bought', wid=w.id) }}">{{ csrf }}<div class="form-grid">
+<label class="field"><span>How many{% if w.unit %} ({{ w.unit }}){% endif %}</span><input name="qty" type="number" step="any" min="0" inputmode="decimal" value="{{ '%g'|format(w.qty) }}" required></label>
+<label class="field"><span>Where from</span><select name="sighting">{% for s in sights %}<option value="{{ s.id }}">{{ s.shop or 'Shop' }}{% if s.price is not none %}, {{ s.price|money }}{% endif %}</option>{% endfor %}<option value="none">Somewhere else</option></select></label>
+{% if not watched %}<label class="field wide"><span>Goes into</span><select name="type_id" required><option value="">Choose a collection and type</option>
+{% for t in types %}<option value="{{ t.id }}" {{ 'selected' if t.id == w.type_id }}>{{ t.pname }} / {{ t.name }}</option>{% endfor %}</select></label>{% endif %}
+</div><p class="muted small">{% if watched %}Adds to {{ watched.name }}'s stock and sets its price to what you paid.{% else %}Makes a new item with this name, colour, photo and price. The wish stays in "what you bought".{% endif %}</p>
+<div class="form-actions"><button class="btn"><svg class="i"><use href="#i-check"/></svg>Bought it</button></div></form>
+{% if not watched and not types %}<p class="muted small">You need a collection you can edit first. <a href="{{ url_for('home') }}">Make one</a>.</p>{% endif %}</section>{% endif %}
+
+{% if can_edit %}<section class="panel danger-zone"><div class="panel-head m0"><div><h3>Delete this wish</h3><p class="muted small m0">Its shops go too. Stock you've already bought stays.</p></div>
+<form method="post" action="{{ url_for('wish_del', wid=w.id) }}" data-confirm="Delete {{ w.name }} from the wishlist?">{{ csrf }}<button class="btn danger">Delete</button></form></div></section>{% endif %}
+</div></div>
+{% endblock %}

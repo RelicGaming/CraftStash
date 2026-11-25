@@ -4,7 +4,7 @@ from flask import (abort, flash, g, make_response, redirect, render_template, re
     session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 from core import (API_PREFIX, app, clean, db, DB, item_of, local_time, log, LOW, num, PHOTOS, purge_photos,
-    pwv, q, run, save_photo, SSO, token_hash, type_of, uid)
+    open_wish_items, pwv, q, run, save_photo, SSO, token_hash, type_of, uid, wish_count)
 
 # ---------- items ----------
 def save_item(t, item_id=None):
@@ -152,7 +152,7 @@ def photo(iid):
 def shopping():
     rows = q(f"""SELECT s.*, a.can_edit FROM stock s JOIN access a ON a.pool_id=s.pool_id
                  WHERE a.user_id=? AND {LOW} ORDER BY s.pname, s.tname, s.name""", uid())
-    return render_template("shopping.html", rows=rows, suggest=suggest)
+    return render_template("shopping.html", rows=rows, suggest=suggest, wish_n=wish_count(), watching=open_wish_items())
 
 def suggest(s):
     """How much to buy so an item is no longer on the shopping list (at least 1 when it's simply out)."""

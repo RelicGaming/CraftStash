@@ -3,8 +3,8 @@ import core, dbx, re, shutil, uuid
 from flask import abort, flash, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 from core import (ALLOWED, app, CAN_EDIT, clean, clean_tag, content_ok, db, FILE_CSP, file_of, find_user, get, GROUP_HEX,
-    INLINE, item_of, like, LIKE, log, num, PHOTOS, project_of, purge_files, purge_step_photos, q, run, save_photo, step_of,
-    uid, UPLOADS, used_bytes)
+    INLINE, item_of, like, LIKE, log, num, PHOTOS, project_of, purge_files, purge_step_photos, q, run, save_photo, SEE_WISH,
+    step_of, uid, UPLOADS, used_bytes)
 from items import fit_places
 
 # ---------- projects ----------
@@ -84,9 +84,10 @@ def new_project():
 @app.get("/projects/<int:id>")
 def project(id):
     pr = project_of(id); mine = pr["user_id"] == uid()
-    assigned = q("""SELECT a.id, a.qty, a.consumed, a.used, s.name, s.colour, s.hex, s.subtype, s.tname, s.unit, s.pname, s.price, s.free
+    assigned = q(f"""SELECT a.id, a.qty, a.consumed, a.used, s.id AS item_id, {CAN_EDIT} AS can_edit, s.name, s.colour, s.hex,
+                            s.subtype, s.tname, s.unit, s.pname, s.price, s.free
                     FROM assignments a JOIN stock s ON s.id=a.item_id
-                    WHERE a.project_id=? ORDER BY s.pname, s.tname, s.name""", id)
+                    WHERE a.project_id=? ORDER BY s.pname, s.tname, s.name""", uid(), id)
     avail = q("""SELECT s.* FROM stock s JOIN access a ON a.pool_id=s.pool_id
                  WHERE a.user_id=? AND a.can_edit=1 ORDER BY s.pname, s.tname, s.name""", uid()) if mine else []
     shares = q("""SELECT u.id, u.username FROM project_shares s JOIN users u ON u.id=s.user_id
@@ -98,6 +99,10 @@ def project(id):
                            photos=photos_by_step(id),
                            files=q("SELECT * FROM files WHERE project_id=? ORDER BY name", id),
                            tags=[r["tag"] for r in q("SELECT tag FROM project_tags WHERE project_id=? ORDER BY tag", id)],
+                           wishes=q("""SELECT w.id, w.name, w.colour, w.hex, w.qty, w.unit,
+                                       (SELECT MIN(ws.price) FROM wish_sightings ws WHERE ws.wish_id=w.id) AS best
+                                       FROM wishes w WHERE w.got=0 AND w.project_id=? AND """ + SEE_WISH + " ORDER BY w.id",
+                                     id, uid(), uid()),
                            known_tags=sorted({t for ts in tags_of(uid()).values() for t in ts}))
 
 @app.post("/projects/<int:id>/update")

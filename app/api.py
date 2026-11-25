@@ -6,6 +6,7 @@ from core import api_error, app, currency, db, item_of, LOW, num, pool_of, proje
 from items import adjust_stock, suggest
 from pools import match, places_in, SEARCH_LIMIT
 from projects import project_filters, project_sections, tags_of, visible_projects
+import wishlist as wl
 
 @app.errorhandler(HTTPException)
 def http_error(e):
@@ -51,7 +52,9 @@ def api_index():
     return jsonify(version=1, user=g.user["username"], can_write=g.api_write, endpoints=[
         "GET /api/v1/summary", "GET /api/v1/shopping", "POST /api/v1/shopping/restock",
         "GET /api/v1/collections", "GET /api/v1/collections/<id>", "GET /api/v1/items?q=&status=",
-        "GET /api/v1/items/<id>", "POST /api/v1/items/<id>/adjust", "GET /api/v1/projects", "GET /api/v1/projects/<id>"])
+        "GET /api/v1/items/<id>", "POST /api/v1/items/<id>/adjust", "GET /api/v1/projects", "GET /api/v1/projects/<id>",
+        "GET /api/v1/wishlist?got=1", "POST /api/v1/wishlist", "GET /api/v1/wishlist/<id>", "POST /api/v1/wishlist/<id>/sightings",
+        "POST /api/v1/wishlist/<id>/bought"])
 
 @app.get("/api/v1/summary")
 def api_summary():
@@ -168,3 +171,46 @@ def api_project(id):
                                    "unit": m["unit"], "reserved": m["reserved"], "used": m["used"] if m["consumed"] else None,
                                    "in_stock": m["qty"], "free": m["free"]} for m in mats],
                     "steps": [dict(s) for s in steps]})
+
+# ---------- wishlist ----------
+def wish_out(wid):
+    w = wl.wish_of(wid); return wl.wish_json(w, wl.sightings_for([w])[wid])
+
+@app.get("/api/v1/wishlist")
+def api_wishlist():
+    """Open wishes (?got=1: the ones bought), each with its shops, cheapest first."""
+    rows = wl.visible_wishes(request.args.get("got") in ("1", "true")); s = wl.sightings_for(rows)
+    return jsonify(count=len(rows), currency=currency(), wishes=[wl.wish_json(w, s[w["id"]]) for w in rows])
+
+@app.get("/api/v1/wishlist/<int:wid>")
+def api_wish(wid): return jsonify(wish_out(wid))
+
+@app.post("/api/v1/wishlist")
+def api_wish_add():
+    """Body: {"name": "Chunky wool", "colour", "hex", "qty", "unit", "notes", "type_id", "item_id", "project_id",
+    and the first shop: "shop", "price", "url", "seen" (YYYY-MM-DD), "shop_notes"}. Only "name" (or "item_id") is needed."""
+    b = body()
+    if not isinstance(b, dict): return api_error(400, 'Send a JSON object, like {"name": "Chunky wool", "shop": "Spotlight", "price": 12.5}.')
+    try: wid = wl.add_wish(b)
+    except wl.Invalid as e: return api_error(400, str(e))
+    return jsonify(wish_out(wid)), 201
+
+@app.post("/api/v1/wishlist/<int:wid>/sightings")
+def api_wish_sighting(wid):
+    """Body: {"shop": "Spotlight", "price": 12.5, "url": "https://...", "seen": "2026-11-25", "notes": "..."}."""
+    w = wl.wish_of(wid, True); b = body()
+    if not isinstance(b, dict): return api_error(400, "Send a JSON object.")
+    try:
+        if not wl.add_sighting(w["id"], b): return api_error(400, 'Send at least one of "shop", "url" or "price".')
+    except wl.Invalid as e: return api_error(400, str(e))
+    return jsonify(wish_out(wid)), 201
+
+@app.post("/api/v1/wishlist/<int:wid>/bought")
+def api_wish_bought(wid):
+    """Body (all optional): {"qty": 2, "sighting": <shop id> or "none" (default: the cheapest), "type_id": <for a new item>}."""
+    w = wl.wish_of(wid, True); b = body() or {}
+    if w["got"]: return api_error(409, "That wish is already marked as bought.")
+    if not isinstance(b, dict): return api_error(400, "Send a JSON object.")
+    try: iid = wl.buy(w, b)
+    except wl.Invalid as e: return api_error(400, str(e))
+    return jsonify(wish=wish_out(wid), item=item_json(item_of(iid), field_map()))
