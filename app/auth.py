@@ -20,9 +20,9 @@ def login():
             if u and check_password_hash(u["pw"], request.form.get("password", "")):
                 if not u["active"]: flash("This account is disabled. Ask an admin.")
                 else:
-                    FAILS.pop(f"{ip}|{name.lower()}", None); session.clear(); session["uid"] = u["id"]
+                    share = session.get("share"); FAILS.pop(f"{ip}|{name.lower()}", None); session.clear(); session["uid"] = u["id"]
                     session["pwv"] = pwv(u["pw"]); session.permanent = True
-                    return redirect(url_for("home"))
+                    return landing(share)
             else:
                 record_fail(ip, name.lower()); flash("Wrong username or password.")
     return render_template("auth.html", mode="login", can_register=signups_open(), first_run=no_users(), sso=SSO)
@@ -38,8 +38,8 @@ def register():
             try: c = run("INSERT INTO users(username,pw,is_admin) VALUES(?,?,?)", name, h, int(first))
             except dbx.IntegrityError: flash("That username is taken.")
             else:
-                session.clear(); session["uid"] = c.lastrowid; session["pwv"] = pwv(h); session.permanent = True
-                return redirect(url_for("home"))
+                share = session.get("share"); session.clear(); session["uid"] = c.lastrowid; session["pwv"] = pwv(h); session.permanent = True
+                return landing(share)
     return render_template("auth.html", mode="register", can_register=True, sso=SSO)
 
 @app.post("/logout")
@@ -51,8 +51,13 @@ def logout():
 def sso_redirect_uri():
     return SSO.redirect_uri or url_for("sso_callback", _external=True)
 
+def landing(share):
+    """Where signing in goes: home, or the import page with what was shared from a phone before signing in."""
+    return redirect(url_for("link_import", **share) if share else url_for("home"))
+
 def sign_in(u):
-    session.clear(); session["uid"] = u["id"]; session["pwv"] = pwv(u["pw"]); session.permanent = True
+    share = session.get("share"); session.clear(); session["uid"] = u["id"]; session["pwv"] = pwv(u["pw"]); session.permanent = True
+    if share: session["share"] = share
 
 def sso_fail(e, to="login"):
     print(f"[sso] {e.detail or e}", file=sys.stderr, flush=True)
@@ -101,7 +106,7 @@ def sso_callback():
         return redirect(url_for("account"))
     if known:
         if not known["active"]: flash("This account is disabled. Ask an admin."); return redirect(url_for("login"))
-        sign_in(known); return redirect(url_for("home"))
+        sign_in(known); return landing(session.pop("share", None))
     name = oidc.username_from(SSO, claims)
     if not name:
         return sso_fail(oidc.Error(f"Your {SSO.name} account has no usable username. Ask an admin.",
@@ -114,7 +119,7 @@ def sso_callback():
                   f"{SSO.name} from your Account page."); return redirect(url_for("login"))
         if not same["active"]: flash("This account is disabled. Ask an admin."); return redirect(url_for("login"))
         run("INSERT INTO user_identities(user_id,issuer,subject,label) VALUES(?,?,?,?)", same["id"], iss, sub, label)
-        sign_in(same); return redirect(url_for("home"))
+        sign_in(same); return landing(session.pop("share", None))
     if not SSO.auto_provision:
         flash(f"There's no account for {name} yet. Ask an admin to create one, then link {SSO.name} from your Account page.")
         return redirect(url_for("login"))

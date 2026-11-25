@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block title %}{{ p.name }} - Craft Stash{% endblock %}
 {% block body %}
 <a class="back" href="{{ url_for('projects') }}"><svg class="i"><use href="#i-chev-l"/></svg>Projects</a>
-<div class="page-head"><h1>{{ p.name }}</h1><span class="pill {{ {'active':'accent','done':'ok','template':'warn'}.get(p.status,'') }}">{{ p.status|capitalize }}</span><span class="grow"></span>
+<div class="page-head"><h1>{{ p.name }}</h1><span class="pill {{ {'active':'accent','done':'ok','template':'warn','idea':'idea'}.get(p.status,'') }}">{{ p.status|capitalize }}</span><span class="grow"></span>
 <div class="actions">
 {% if p.status == 'template' %}<form method="post" action="{{ url_for('copy_project', id=p.id) }}">{{ csrf }}<button class="btn"><svg class="i"><use href="#i-plus"/></svg>{{ 'Start a project' if mine else 'Save a copy' }}</button></form>
 {% elif mine and p.status == 'done' %}<form method="post" action="{{ url_for('reopen', id=p.id) }}" data-confirm="Reopen this project?{% if assigned|selectattr('used')|list %} The materials it used go back into stock.{% endif %}">{{ csrf }}<button class="btn secondary">Reopen</button></form>
@@ -15,6 +15,7 @@
 {% if not mine %}<form method="post" action="{{ url_for('leave_project', id=p.id) }}">{{ csrf }}<button role="menuitem" class="danger-text">Stop following</button></form>{% endif %}
 </div></details></div></div>
 {% if p.status == 'template' %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>This is a template. Its materials are only a list: they don't hold any of your stock. {{ 'Start a project from it to reserve them.' if mine else '' }}</span></div>{% endif %}
+{% if p.status == 'idea' and mine %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>This is an idea. Materials you add are only a list: they don't hold any of your stock until you set the status to Planned.</span></div>{% endif %}
 {% if not mine %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Shared by {{ p.owner }}. You can view and print this project but not change it.</span></div>{% endif %}
 {% if p.notes %}<div class="print-only" style="white-space:pre-wrap;margin-bottom:12px">{{ p.notes }}</div>{% endif %}
 <div class="cols"><div>
@@ -22,7 +23,7 @@
 <div class="strip lg">{% for h in hexes %}<i style="--c:{{ h }}"></i>{% endfor %}</div>
 {% for a in assigned %}<div class="list-row mat-row"><span class="sw-dot{{ '' if a.hex else ' none' }}" {% if a.hex %}style="--c:{{ a.hex }}"{% endif %}></span>
 <div class="grow"><strong>{{ a.name }}</strong>{% if a.colour %} <span class="muted">{{ a.colour }}</span>{% endif %}<div class="muted small">{{ a.tname }}{% if a.subtype %}, {{ a.subtype }}{% endif %}</div></div>
-<strong>{{ '%g'|format(a.qty) }} {{ a.unit }}</strong>{% if a.consumed %}{% if a.used %}<span class="pill ok">{% if (a.used - a.qty)|abs > 1e-9 %}Used {{ '%g'|format(a.used) }}{% else %}Used{% endif %}</span>{% else %}<span class="pill">Not deducted</span>{% endif %}{% elif mine and a.free < 0 and p.status != 'template' %}<span class="pill bad">Short by {{ '%g'|format(-a.free) }}</span>{% endif %}
+<strong>{{ '%g'|format(a.qty) }} {{ a.unit }}</strong>{% if a.consumed %}{% if a.used %}<span class="pill ok">{% if (a.used - a.qty)|abs > 1e-9 %}Used {{ '%g'|format(a.used) }}{% else %}Used{% endif %}</span>{% else %}<span class="pill">Not deducted</span>{% endif %}{% elif mine and a.free < 0 and p.status not in ('template', 'idea') %}<span class="pill bad">Short by {{ '%g'|format(-a.free) }}</span>{% endif %}
 {% if mine and not a.consumed and a.can_edit and a.free < 0 and p.status not in ('template', 'done') %}<a class="btn ghost sm noprint" href="{{ url_for('wish_new', item=a.item_id, project=p.id, qty='%g'|format(-a.free)) }}">Add to wishlist</a>{% endif %}
 {% if mine and not a.consumed %}<form class="noprint" method="post" action="{{ url_for('unassign', aid=a.id) }}">{{ csrf }}<button class="btn ghost danger sm">Remove</button></form>{% endif %}</div>
 {% else %}<p class="muted">{{ 'Nothing assigned yet. Pick supplies below.' if mine else 'No materials listed.' }}</p>{% endfor %}
@@ -54,13 +55,19 @@
 <label class="field"><span>Photos (optional, up to {{ max_photos }})</span><input type="file" name="photos" accept="image/*" multiple></label>
 <div><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Add step</button></div></form>{% endif %}</section>
 </div><div>
+{% if p.photo or p.source or mine %}<section class="panel{{ ' noprint' if not p.photo }}"><div class="panel-head"><h2>Picture</h2></div>
+{% if p.photo %}<img class="cover" src="{{ url_for('project_photo', id=p.id) }}" alt="">{% elif mine %}<p class="muted small m0">No picture yet. Add a photo of the finished piece, or of the idea that started it.</p>{% endif %}
+{% if p.source %}<p class="small source{{ ' mt-12' if p.photo or mine }}"><span class="muted">From</span> <a href="{{ p.source }}" target="_blank" rel="noopener noreferrer nofollow">{{ p.source|truncate(80, True) }}</a></p>{% endif %}
+{% if mine %}<form class="cover-form noprint" method="post" action="{{ url_for('project_photo_set', id=p.id) }}" enctype="multipart/form-data">{{ csrf }}
+<input type="file" name="photo" accept="image/*" required aria-label="{{ 'Replace the picture' if p.photo else 'Add a picture' }}"><button class="btn secondary sm">{{ 'Replace' if p.photo else 'Add picture' }}</button></form>
+{% if p.photo %}<form class="noprint mt-8" method="post" action="{{ url_for('project_photo_set', id=p.id) }}" data-confirm="Remove this picture?">{{ csrf }}<button class="btn ghost danger sm" name="remove" value="1">Remove picture</button></form>{% endif %}{% endif %}</section>{% endif %}
 <section class="panel tags-panel"><div class="panel-head"><h2>Tags</h2></div>
 <div class="tags">{% for t in tags %}<span class="pill tag"><a href="{{ url_for('projects', tag=t) }}">#{{ t }}</a>{% if mine %}<form class="noprint" method="post" action="{{ url_for('delete_tag', id=p.id) }}">{{ csrf }}<input type="hidden" name="tag" value="{{ t }}"><button aria-label="Remove tag {{ t }}">&times;</button></form>{% endif %}</span>{% else %}<span class="muted">{{ 'No tags yet.' if mine else 'No tags.' }}</span>{% endfor %}</div>
 {% if mine %}<form class="inline noprint mt-12" method="post" action="{{ url_for('add_tags', id=p.id) }}">{{ csrf }}<input name="tags" list="known-tags" maxlength="200" placeholder="gifts, baby, winter" aria-label="Add tags (separate with commas)" autocomplete="off"><button class="btn secondary">Add</button>
 <datalist id="known-tags">{% for t in known_tags if t not in tags %}<option value="{{ t }}">{% endfor %}</datalist></form>{% endif %}</section>
 {% if mine %}<form class="panel noprint" method="post" action="{{ url_for('project_update', id=p.id) }}">{{ csrf }}<div class="panel-head"><h2>Details</h2></div>
 <div class="form-grid"><label class="field wide"><span>Name</span><input name="name" value="{{ p.name }}" maxlength="100"></label>
-{% if p.status not in ('done', 'template') %}<label class="field wide"><span>Status</span><select name="status"><option value="planned" {{ 'selected' if p.status == 'planned' }}>Planned</option><option value="active" {{ 'selected' if p.status == 'active' }}>Active</option></select></label>{% endif %}
+{% if p.status not in ('done', 'template') %}<label class="field wide"><span>Status</span><select name="status"><option value="idea" {{ 'selected' if p.status == 'idea' }}>Idea</option><option value="planned" {{ 'selected' if p.status == 'planned' }}>Planned</option><option value="active" {{ 'selected' if p.status == 'active' }}>Active</option></select></label>{% endif %}
 <label class="field wide"><span>Notes</span><textarea name="notes" rows="4" maxlength="5000">{{ p.notes }}</textarea></label></div>
 <div class="form-actions"><button class="btn">Save details</button></div></form>
 {% elif p.notes %}<section class="panel noprint"><div class="panel-head"><h2>Notes</h2></div><div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ p.notes }}</div></section>{% endif %}

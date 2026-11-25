@@ -3,12 +3,14 @@ import core, dbx, re, shutil, uuid
 from flask import abort, flash, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 from core import (ALLOWED, app, CAN_EDIT, clean, clean_tag, content_ok, db, FILE_CSP, file_of, find_user, get, GROUP_HEX,
-    INLINE, item_of, like, LIKE, log, num, PHOTOS, project_of, purge_files, purge_step_photos, q, run, save_photo, SEE_WISH,
+    INLINE, item_of, like, LIKE, log, num, PHOTOS, project_of, purge_files, purge_project_photos, purge_step_photos, q, run, save_photo,
+    SEE_WISH,
     step_of, uid, UPLOADS, used_bytes)
 from items import fit_places
 
 # ---------- projects ----------
-STATUSES = ("planned", "active", "done", "template")
+STATUSES = ("idea", "planned", "active", "done", "template")
+OPEN = ("idea", "planned", "active")     # what the Status box offers. An idea or a template doesn't hold any stock.
 SORTS = {"name": "Name", "updated": "Recently updated", "newest": "Newest"}
 GROUPS = {"status": "Status", "tag": "Tag", "none": "No grouping"}
 MAX_TAGS = 20
@@ -62,8 +64,9 @@ def project_sections(rows, f, me):
         sections = [(t, [r for r in rows if t in r["tags"]]) for t in names]
         return sections + ([("Untagged", [r for r in rows if not r["tags"]])] if any(not r["tags"] for r in rows) else [])
     if f["sort"] == "name": rows.sort(key=lambda r: r["status"] == "done")     # as before: finished projects last
-    mine = [r for r in rows if r["user_id"] == me and r["status"] != "template"]
-    return [("", mine), ("Templates", [r for r in rows if r["user_id"] == me and r["status"] == "template"]),
+    mine = [r for r in rows if r["user_id"] == me and r["status"] not in ("template", "idea")]
+    return [("", mine), ("Ideas", [r for r in rows if r["user_id"] == me and r["status"] == "idea"]),
+            ("Templates", [r for r in rows if r["user_id"] == me and r["status"] == "template"]),
             ("Shared with you", [r for r in rows if r["user_id"] != me])]
 
 @app.get("/projects")
@@ -109,7 +112,7 @@ def project(id):
 def project_update(id):
     pr = project_of(id, True)
     status = request.form.get("status")
-    if pr["status"] in ("done", "template") or status not in ("planned", "active"): status = pr["status"]
+    if pr["status"] in ("done", "template") or status not in OPEN: status = pr["status"]
     run("UPDATE projects SET name=?, status=?, notes=? WHERE id=?",
         clean("name", 100) or pr["name"], status, clean("notes", 5000), id)
     return redirect(url_for("project", id=id))
@@ -140,7 +143,7 @@ def assign(id):
     else:
         short = n - max(it["free"], 0)       # more than is free is allowed: the gap lands on the shopping list
         run(dbx.upsert("assignments", ["project_id", "item_id", "qty"], ["project_id", "item_id"], {"qty": "assignments.qty+excluded.qty"}), id, it["id"], n)
-        if short > 1e-9 and pr["status"] != "template": flash(f"That's {short:g} {it['unit']} more than you have free. It's on your shopping list.")
+        if short > 1e-9 and pr["status"] not in ("template", "idea"): flash(f"That's {short:g} {it['unit']} more than you have free. It's on your shopping list.")
     return redirect(url_for("project", id=id))
 
 @app.post("/assignments/<int:aid>/delete")
@@ -204,13 +207,18 @@ def copy_project(id):
     if not mine and mats:    # the new owner can't use someone else's stock, so the materials become a written list
         lines = [f"- {a['qty']:g} {a['unit']} {a['name']}" + (f" ({a['colour']})" if a["colour"] else "") for a in mats]
         notes = (notes + "\n\n" if notes else "") + "Materials from the original:\n" + "\n".join(lines)
-    nid = d.execute("INSERT INTO projects(user_id,name,notes,status,created,updated) VALUES(?,?,?,?,?,?)",
-                    (uid(), name[:100], notes[:5000], "template" if to_template else "planned", dbx.now(), dbx.now())).lastrowid
+    status = "template" if to_template else "idea" if pr["status"] == "idea" else "planned"
+    nid = d.execute("INSERT INTO projects(user_id,name,notes,status,source,created,updated) VALUES(?,?,?,?,?,?,?)",
+                    (uid(), name[:100], notes[:5000], status, pr["source"], dbx.now(), dbx.now())).lastrowid
     d.execute("INSERT INTO project_tags(project_id,tag) SELECT ?, tag FROM project_tags WHERE project_id=?", (nid, id))
     if mine: d.execute(f"""INSERT INTO assignments(project_id,item_id,qty) SELECT ?, a.item_id, a.qty FROM assignments a
                            JOIN stock s ON s.id=a.item_id WHERE a.project_id=? AND {CAN_EDIT}""", (nid, id, uid()))
-    over = missing = 0; copied = []
+    over = missing = 0; copied = []; cover = ""
     try:
+        if pr["photo"]:
+            try: shutil.copyfile(PHOTOS / pr["photo"], PHOTOS / (cover := uuid.uuid4().hex + ".jpg"))
+            except FileNotFoundError: cover = ""
+            if cover: d.execute("UPDATE projects SET photo=? WHERE id=?", (cover, nid))
         for s in q("SELECT * FROM steps WHERE project_id=? ORDER BY pos", id):
             sid = d.execute("INSERT INTO steps(project_id,pos,title,body) VALUES(?,?,?,?)", (nid, s["pos"], s["title"], s["body"])).lastrowid
             for ph in q("SELECT * FROM step_photos WHERE step_id=? ORDER BY id", s["id"]):
@@ -231,6 +239,7 @@ def copy_project(id):
     except Exception:
         d.rollback()
         for s in copied: (UPLOADS / s).unlink(missing_ok=True)
+        if cover: (PHOTOS / cover).unlink(missing_ok=True)
         raise
     if over: flash("Some files weren't copied because you're over your storage limit.")
     if missing: flash(f"{missing} file(s) were missing from storage and weren't copied.")
@@ -246,7 +255,8 @@ def leave_project(id):
 
 @app.post("/projects/<int:id>/delete")
 def del_project(id):
-    project_of(id, True); purge_files("project", id); purge_step_photos("project", id); run("DELETE FROM projects WHERE id=?", id)
+    project_of(id, True); purge_files("project", id); purge_step_photos("project", id); purge_project_photos("project", id)
+    run("DELETE FROM projects WHERE id=?", id)
     return redirect(url_for("projects"))
 
 @app.post("/projects/<int:id>/share")
@@ -306,6 +316,30 @@ def add_step_photos(s):
 def step_photos_add(sid):
     s = step_of(sid); add_step_photos(s)
     return redirect(url_for("project", id=s["project_id"]) + f"#step-{sid}")
+
+# ---------- cover picture ----------
+@app.get("/projects/<int:id>/photo")
+def project_photo(id):
+    pr = project_of(id)
+    if not pr["photo"]: abort(404)
+    r = send_from_directory(PHOTOS, pr["photo"], mimetype="image/jpeg"); r.headers["Cache-Control"] = "private, max-age=3600"
+    return r
+
+def set_cover(pid, name):
+    """Make name (a file in PHOTOS, or '') the project's cover picture; the old one is deleted."""
+    old = get("SELECT photo FROM projects WHERE id=?", pid)["photo"]
+    run("UPDATE projects SET photo=? WHERE id=?", name, pid)
+    if old and old != name: (PHOTOS / old).unlink(missing_ok=True)
+
+@app.post("/projects/<int:id>/photo")
+def project_photo_set(id):
+    project_of(id, True); up = request.files.get("photo")
+    if request.form.get("remove"): set_cover(id, "")
+    elif up and up.filename:
+        name = save_photo(up)
+        if name: set_cover(id, name)
+        else: flash("That picture couldn't be read. Use a JPEG, PNG, WebP or GIF image.")
+    return redirect(url_for("project", id=id))
 
 @app.get("/step-photos/<int:pid>")
 def step_photo(pid):

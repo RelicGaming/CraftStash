@@ -232,6 +232,11 @@ def purge_step_photos(scope, id):
     for r in q("SELECT sp.stored FROM step_photos sp JOIN steps s ON s.id=sp.step_id JOIN projects p ON p.id=s.project_id WHERE " + STEP_PHOTO_SCOPES[scope], id):
         (PHOTOS / r["stored"]).unlink(missing_ok=True)
 
+PROJECT_PHOTO_SCOPES = MappingProxyType({"user": "user_id=?", "project": "id=?"})
+
+def purge_project_photos(scope, id):   # a project's cover picture
+    for r in q("SELECT photo FROM projects WHERE photo<>'' AND " + PROJECT_PHOTO_SCOPES[scope], id): (PHOTOS / r["photo"]).unlink(missing_ok=True)
+
 def purge_wish_photos(user_id):    # before an account goes: its wishes go with it (ON DELETE CASCADE)
     for r in q("SELECT photo FROM wishes WHERE user_id=? AND photo<>''", user_id): (PHOTOS / r["photo"]).unlink(missing_ok=True)
 
@@ -285,7 +290,7 @@ def valid_account(name, pw):
 # ---------- request hooks ----------
 @app.before_request
 def gate():
-    if request.endpoint in ("healthz", "static"): return
+    if request.endpoint in ("healthz", "static", "manifest"): return    # browsers fetch the manifest without the session cookie
     if request.path.startswith("/api/"): return api_gate()
     session.setdefault("csrf", secrets.token_hex(16))
     g.user = None
@@ -297,6 +302,8 @@ def gate():
             request.form.get("_csrf", "").encode(), session["csrf"].encode()):
         abort(400)
     if not g.user and request.endpoint not in ("login", "register", "sso_login", "sso_callback"):
+        if request.endpoint == "link_import" and request.method == "GET":   # shared from a phone: pick it up after signing in
+            session["share"] = {k: request.args[k][:500] for k in ("url", "text", "title") if request.args.get(k)}
         return redirect(url_for("login"))
     prune_daily()
 
@@ -306,7 +313,8 @@ def headers(r):
     r.headers["Referrer-Policy"] = "same-origin"
     if request.path.startswith("/api/"): r.headers["Cache-Control"] = "no-store"
     if r.mimetype == "text/html":       # not on files, so the browser's PDF viewer keeps working
-        r.headers["Content-Security-Policy"] = CSP; r.headers["X-Frame-Options"] = "DENY"
+        csp = CSP.replace("img-src 'self'", "img-src 'self' " + " ".join(g.img_hosts), 1) if g.get("img_hosts") else CSP
+        r.headers["Content-Security-Policy"] = csp; r.headers["X-Frame-Options"] = "DENY"
         r.headers.setdefault("Cache-Control", "private, no-cache")
     return r
 

@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS types(id BIGINT AUTO_INCREMENT PRIMARY KEY, pool_id B
   INDEX ix_types_pool (pool_id), FOREIGN KEY (pool_id) REFERENCES pools(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS items(id BIGINT AUTO_INCREMENT PRIMARY KEY, type_id BIGINT NOT NULL, name TEXT NOT NULL, colour TEXT NOT NULL DEFAULT (''), hex TEXT NOT NULL DEFAULT (''), subtype TEXT NOT NULL DEFAULT (''), qty DOUBLE NOT NULL DEFAULT 0, price DOUBLE, low_at DOUBLE, location TEXT NOT NULL DEFAULT (''), notes TEXT NOT NULL DEFAULT (''), extra MEDIUMTEXT NOT NULL DEFAULT ('{}'), photo TEXT NOT NULL DEFAULT (''),
   INDEX ix_items_type (type_id), FOREIGN KEY (type_id) REFERENCES types(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-CREATE TABLE IF NOT EXISTS projects(id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, name TEXT NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'planned', notes TEXT NOT NULL DEFAULT (''), created VARCHAR(19) NOT NULL DEFAULT '', updated VARCHAR(19) NOT NULL DEFAULT '',
+CREATE TABLE IF NOT EXISTS projects(id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, name TEXT NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'planned', notes TEXT NOT NULL DEFAULT (''), created VARCHAR(19) NOT NULL DEFAULT '', updated VARCHAR(19) NOT NULL DEFAULT '', photo TEXT NOT NULL DEFAULT (''), source TEXT NOT NULL DEFAULT (''),
   INDEX ix_projects_user (user_id), FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS assignments(id BIGINT AUTO_INCREMENT PRIMARY KEY, project_id BIGINT NOT NULL, item_id BIGINT NOT NULL, qty DOUBLE NOT NULL, consumed INTEGER NOT NULL DEFAULT 0, used DOUBLE NOT NULL DEFAULT 0,
   UNIQUE KEY uq_assign (project_id, item_id), INDEX ix_assign_item (item_id),
@@ -56,5 +56,5 @@ CREATE OR REPLACE VIEW access AS
 CREATE OR REPLACE VIEW stock AS
   SELECT i.*, t.name AS tname, t.unit, t.pool_id, p.name AS pname, p.user_id,
          i.qty - COALESCE((SELECT SUM(a.qty) FROM assignments a WHERE a.item_id = i.id AND a.consumed = 0
-                     AND a.project_id NOT IN (SELECT id FROM projects WHERE status = 'template')), 0) AS free
+                     AND a.project_id NOT IN (SELECT id FROM projects WHERE status IN ('template', 'idea'))), 0) AS free
   FROM items i JOIN types t ON t.id = i.type_id JOIN pools p ON p.id = t.pool_id;

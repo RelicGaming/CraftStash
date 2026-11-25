@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% block title %}Import from a link - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('projects') }}"><svg class="i"><use href="#i-chev-l"/></svg>Projects</a>
+<div class="page-head"><h1>Import from a link</h1><span class="grow"></span><a class="btn secondary" href="{{ url_for('board_import') }}">Import a board</a></div>
+{% if shared %}<div class="notice"><svg class="i"><use href="#i-info"/></svg><span>Shared from your phone. Check the link and choose where it goes.</span></div>{% endif %}
+<form class="panel" method="post" enctype="multipart/form-data" data-busy>{{ csrf }}
+<div class="form-grid">
+<label class="field wide"><span>Link</span><input name="url" type="url" value="{{ url }}" required maxlength="500" inputmode="url" {{ 'autofocus' if not url }}
+  placeholder="https://pin.it/... or any page with a picture"></label>
+<div class="field wide"><span>Save it as</span><div class="chips" role="radiogroup" aria-label="Save it as">
+<label class="chip pick"><input type="radio" name="to" value="project" {{ 'checked' if to != 'wishlist' }}><span>A project idea</span></label>
+<label class="chip pick"><input type="radio" name="to" value="wishlist" {{ 'checked' if to == 'wishlist' }}><span>A wishlist item (something to buy)</span></label></div></div>
+<label class="field wide"><span>Name <span class="muted">(optional)</span></span><input name="name" value="{{ name }}" maxlength="100" placeholder="Taken from the page"></label>
+<label class="field wide"><span>Picture <span class="muted">(optional)</span></span><input type="file" name="photo" accept="image/*"></label>
+</div>
+<p class="muted small">Craft Stash reads the page's title, description and picture. Pins, Etsy listings and most blogs work. If a page can't be read, give it a name or a picture and it's saved anyway, with the link.</p>
+<div class="form-actions"><button class="btn"><svg class="i"><use href="#i-plus"/></svg>Import</button></div>
+</form>
+{% endblock %}

@@ -24,6 +24,15 @@
   // <button data-print>
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) window.print(); });
 
+  // <form data-busy>: importing fetches another site, which takes a few seconds. Show that it's working, once.
+  document.addEventListener('submit', e => {
+    const f = e.target, b = e.submitter || (f.querySelector && f.querySelector('button'));
+    if (e.defaultPrevented || !f.matches('form[data-busy]') || !b) return;
+    setTimeout(() => { b.dataset.label = b.innerHTML; b.textContent = 'Working…'; b.disabled = true; }, 0);   // after the form data is taken
+  });
+  window.addEventListener('pageshow', () => document.querySelectorAll('form[data-busy] button[data-label]').forEach(b => {
+    b.innerHTML = b.dataset.label; b.disabled = false; delete b.dataset.label; }));   // back from the next page
+
   // Colour inputs: phone and tablet browsers often show only a short preset list for <input type=color>,
   // so every colour input also gets a hex box and hue / saturation / lightness sliders that work everywhere.
   const toHsl = hex => {

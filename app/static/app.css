@@ -289,3 +289,20 @@ summary.who.current .avatar{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--
 .facts{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:12px 0 0}
 .facts dt{color:var(--muted);font-size:.85rem;font-weight:620}.facts dd{margin:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .notice form{margin:0 0 0 auto}
+/* link import: board pins to pick, and a project's cover picture */
+.pin-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px}
+.pin{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer}
+.pin:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.pin.done{opacity:.6;cursor:default}
+.pin img,.pin-none{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:var(--sunk)}
+.pin-body{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;font-size:.85rem;overflow-wrap:anywhere}
+.pin-body input,.pin-body a{flex:none;margin-top:2px}.pin-body a{margin-top:0;font-weight:620}
+.pin-body span{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.sticky-actions{position:sticky;bottom:0;background:var(--bg);padding:12px 0;margin-bottom:-12px}
+.tile-photo{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--sunk)}
+.cover{width:100%;max-height:420px;object-fit:cover;border-radius:12px;display:block;border:1px solid var(--line)}
+.cover-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.cover-form input[type=file]{flex:1 1 180px;min-width:0}
+.source{overflow-wrap:anywhere}
+
+.pill.idea{background:transparent;box-shadow:inset 0 0 0 1px var(--stitch);color:var(--muted)}

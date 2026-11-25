@@ -22,6 +22,7 @@ services:
       ALLOW_SIGNUP: "${ALLOW_SIGNUP:-1}"      # only the starting default; the Users page can override it
       MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
       USER_QUOTA_MB: "${USER_QUOTA_MB:-500}"  # guide/pattern storage per user, 0 = unlimited
+      LINK_IMPORT: "${LINK_IMPORT:-on}"       # off = no importing from links (the server fetches pasted pages)
       BACKUP_KEEP: "${BACKUP_KEEP:-7}"        # daily database snapshots to keep, 0 = off
       SECRET_KEY: "${SECRET_KEY:-}"           # optional; auto-generated into the volume if empty
       # Storage: everything lives under /data unless a folder is mapped on its own (see volumes below).

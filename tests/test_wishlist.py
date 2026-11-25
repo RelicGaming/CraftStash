@@ -213,7 +213,7 @@ def test_an_older_sqlite_database_gets_the_tables(make_env, tmp_path):
     d.execute("DROP TABLE wish_sightings"); d.execute("DROP TABLE wishes"); d.execute("PRAGMA user_version=8"); d.commit(); d.close()
     make_env(); d = sqlite3.connect(tmp_path / "craft.db")
     assert {"wishes", "wish_sightings"} <= {r[0] for r in d.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert d.execute("PRAGMA user_version").fetchone()[0] == 9 and list((tmp_path / "backups").glob("*"))   # backed up first
+    assert d.execute("PRAGMA user_version").fetchone()[0] >= 9 and list((tmp_path / "backups").glob("*"))   # backed up first
 
 @pytest.mark.skipif(not TEST_DB, reason="needs a server database")
 def test_a_server_database_without_the_tables_gets_them(make_env):

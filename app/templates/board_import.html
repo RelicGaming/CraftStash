@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Import a board - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('projects') }}"><svg class="i"><use href="#i-chev-l"/></svg>Projects</a>
+<div class="page-head"><h1>Import a Pinterest board</h1><span class="grow"></span><a class="btn secondary" href="{{ url_for('link_import') }}">Import one link</a></div>
+<form class="panel inline" method="get" action="{{ url_for('board_import') }}" data-busy>
+<input name="url" type="url" value="{{ url }}" required maxlength="500" inputmode="url" placeholder="https://www.pinterest.com/name/board/" aria-label="Board link" style="flex:1 1 260px">
+<button class="btn secondary">Show pins</button></form>
+{% if pins is none %}<p class="muted">Paste the link of a <b>public</b> board. Craft Stash reads the board's feed, which lists its newest pins, and you pick the ones to keep. Each becomes a project idea with its picture, tagged #pinterest. Pins you've imported before are skipped, so you can come back for new ones.</p>
+{% elif not pins %}<p class="muted">That board has no pins in its feed. Check that it's public.</p>
+{% else %}
+<form method="post" data-busy>{{ csrf }}<input type="hidden" name="url" value="{{ url }}">
+<div class="panel-head"><h2>{{ title or 'Pins' }}</h2><span class="muted small">{{ pins|length }} in the feed{% set new = pins|rejectattr('imported')|list %}{% if new|length < pins|length %}, {{ pins|length - new|length }} imported already{% endif %}</span></div>
+{% if new|length > pick %}<p class="muted small">Up to {{ pick }} are imported at a time. Import again for the rest.</p>{% endif %}
+<div class="pin-grid">{% for p in pins %}
+<label class="pin{{ ' done' if p.imported }}">{% if p.image and p.image.startswith('https://i.pinimg.com/') %}<img src="{{ p.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="pin-none"></span>{% endif %}
+<span class="pin-body">{% if p.imported %}<a href="{{ url_for('project', id=p.imported) }}">Imported</a>{% else %}<input type="checkbox" name="pin" value="{{ p.link }}" checked>{% endif %}<span>{{ p.title }}</span></span></label>
+{% endfor %}</div>
+<div class="form-actions sticky-actions">{% if new %}<button class="btn"><svg class="i"><use href="#i-plus"/></svg>Import the ticked pins</button>{% else %}<span class="muted">Everything on this board is imported already.</span>{% endif %}</div>
+</form>{% endif %}
+{% endblock %}

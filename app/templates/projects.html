@@ -1,18 +1,18 @@
 {% extends "base.html" %}{% block title %}Projects - Craft Stash{% endblock %}
-{% macro card(p) %}<a class="tile" href="{{ url_for('project', id=p.id) }}"><div class="strip">{% for c in (p.hexes or '').split(',')[:24] if c %}<i style="--c:{{ c }}"></i>{% endfor %}</div>
+{% macro card(p) %}<a class="tile" href="{{ url_for('project', id=p.id) }}">{% if p.photo %}<img class="tile-photo" src="{{ url_for('project_photo', id=p.id) }}" alt="" loading="lazy">{% endif %}<div class="strip">{% for c in (p.hexes or '').split(',')[:24] if c %}<i style="--c:{{ c }}"></i>{% endfor %}</div>
 <div class="tile-body"><h3>{{ p.name }}</h3>
-<div class="tile-meta"><span class="pill {{ {'active':'accent','done':'ok','template':'warn'}.get(p.status,'') }}">{{ p.status|capitalize }}</span>
+<div class="tile-meta"><span class="pill {{ {'active':'accent','done':'ok','template':'warn','idea':'idea'}.get(p.status,'') }}">{{ p.status|capitalize }}</span>
 {% if p.user_id != g.user.id %}<span class="pill">from {{ p.owner }}</span>{% endif %}{% for t in p.tags %}<span class="pill tag">{{ t }}</span>{% endfor %}</div>
 <span class="muted small" style="margin-top:6px">{{ p.n_items }} {{ 'material' if p.n_items == 1 else 'materials' }}, {{ p.n_steps }} {{ 'step' if p.n_steps == 1 else 'steps' }}{% if p.n_files %}, {{ p.n_files }} {{ 'file' if p.n_files == 1 else 'files' }}{% endif %}</span></div></a>{% endmacro %}
 {% macro add_tile() %}<form class="tile add" method="post" action="{{ url_for('new_project') }}">{{ csrf }}<h3>New project</h3>
 <label class="field"><span>Name</span><input name="name" required maxlength="100" placeholder="Baby blanket"></label>
 <button class="btn"><svg class="i"><use href="#i-plus"/></svg>Create project</button></form>{% endmacro %}
 {% block body %}
-<div class="page-head"><h1>Projects</h1></div>
+<div class="page-head"><h1>Projects</h1>{% if link_import_on %}<span class="grow"></span><a class="btn secondary" href="{{ url_for('link_import') }}"><svg class="i"><use href="#i-plus"/></svg>Import from a link</a>{% endif %}</div>
 <form class="panel filters" method="get" action="{{ url_for('projects') }}" data-remember="projects">
 <div class="inline"><input type="search" name="q" value="{{ f.q }}" maxlength="100" placeholder="Search names, notes and steps" aria-label="Search projects">
 <button class="btn secondary">Apply</button>{% if f.active or f.group != 'status' or f.sort != 'name' %}<a class="btn ghost" href="{{ url_for('projects') }}" data-forget>Clear</a>{% endif %}</div>
-<div class="chips" role="group" aria-label="Status">{% for s in statuses %}<label class="chip pick"><input type="checkbox" name="status" value="{{ s }}" {{ 'checked' if s in f.status }}><span>{{ 'Templates' if s == 'template' else s|capitalize }}</span></label>{% endfor %}<label class="chip pick"><input type="checkbox" name="shared" value="1" {{ 'checked' if f.shared }}><span>Shared with me</span></label></div>
+<div class="chips" role="group" aria-label="Status">{% for s in statuses %}<label class="chip pick"><input type="checkbox" name="status" value="{{ s }}" {{ 'checked' if s in f.status }}><span>{{ {'template': 'Templates', 'idea': 'Ideas'}.get(s, s|capitalize) }}</span></label>{% endfor %}<label class="chip pick"><input type="checkbox" name="shared" value="1" {{ 'checked' if f.shared }}><span>Shared with me</span></label></div>
 {% if all_tags %}<div class="chips" role="group" aria-label="Tags">{% for t in all_tags %}<label class="chip pick"><input type="checkbox" name="tag" value="{{ t }}" {{ 'checked' if t in f.tags }}><span>#{{ t }}</span></label>{% endfor %}</div>{% endif %}
 <div class="inline">{% if pools %}<label class="field inline-field"><span>Uses collection</span><select name="pool"><option value="0">Any</option>{% for p in pools %}<option value="{{ p.id }}" {{ 'selected' if p.id == f.pool }}>{{ p.name }}</option>{% endfor %}</select></label>{% endif %}
 <label class="field inline-field"><span>Group by</span><select name="group">{% for k, v in groups.items() %}<option value="{{ k }}" {{ 'selected' if k == f.group }}>{{ v }}</option>{% endfor %}</select></label>
