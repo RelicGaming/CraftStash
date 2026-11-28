@@ -71,8 +71,8 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 | Log in with Authentik, Authelia, Keycloak, Google... | any install | `OIDC_ENABLED` and friends ([Single sign-on](#single-sign-on)) |
 | Changes from git deployed for you | [Dockhand](#dockhand) or [Portainer](#portainer) (git stack) | `IMAGE` |
 
-The image is `ghcr.io/relicgaming/craftstash:latest` (built by CI on every push to `main`; each build is also tagged
-`:sha-<commit>` to pin or roll back). Compose can also build it from this repository.
+The image is `ghcr.io/relicgaming/craftstash`. `:latest` is the newest release; see
+[Versions and upgrades](#versions-and-upgrades) for the other tags. Compose can also build it from this repository.
 
 ## Install
 
@@ -516,6 +516,34 @@ Empty means the default. A setting ending in `_FILE` reads the value from that f
 | `NPM_IMAGE` / `POSTGRES_IMAGE` / `MARIADB_IMAGE` | `jc21/nginx-proxy-manager:2` / `postgres:17-alpine` / `mariadb:11` | image | `postgres:16-alpine` | Pin or change the bundled images |
 | `PROXY_NETWORK` | `proxy` | network name | `npm_default` | Your own proxy's Docker network, when joining it |
 
+## Versions and upgrades
+Releases are numbered `MAJOR.MINOR.PATCH` and listed in [CHANGELOG.md](CHANGELOG.md) and on the
+[Releases page](https://github.com/RelicGaming/CraftStash/releases). The running version is shown on the Admin page, in
+the first `[config]` log line and as `app_version` in `GET /api/v1`.
+
+| Tag | What it is | Use it for |
+|---|---|---|
+| `:1` | the newest 1.x release | **most installs**: fixes and new features, never a breaking change |
+| `:1.0` | the newest 1.0.x release | fixes only |
+| `:1.0.0` | exactly that release | pinning; change it by hand |
+| `:latest` | the newest release, including a future 2.0 | if you always want the newest |
+| `:1.0.0-rc.1` | a release candidate | trying a release before it ships |
+| `:edge` | every merge to `main` | testing unreleased work; may break |
+| `:sha-<commit>` | one exact build | rolling back to a specific build |
+
+**What each kind of release may change:**
+- **Patch** (1.0.0 → 1.0.1): bug and security fixes only.
+- **Minor** (1.0 → 1.1): new features. The database upgrades itself on start, no setting is removed or changes meaning,
+  and the API stays `v1` (it may gain fields and endpoints).
+- **Major** (1.x → 2.0): may need a manual step, remove a setting or change the API. The changelog says what to do.
+
+Any 1.x can upgrade straight to any later 1.x. To upgrade, take a backup (Admin → Backup), pull the new image and
+recreate the container; the database is upgraded on start. A SQLite database is also copied to the backups folder as
+`pre-migrate-*.db` before any upgrade; for PostgreSQL or MariaDB, keep your own dump as well.
+
+An older version refuses to start on a database a newer one upgraded, and says so in the log. To go back, run the older
+image with a backup taken before the upgrade (see [Backups and restore](#backups-and-restore)).
+
 ## Backups and restore
 **What to back up:** `/data` and every folder you [mapped separately](#storage) (photos, files, backups), plus the
 database server's own backup if you use one. On Unraid, include the appdata folder and the craft-stash share.
@@ -736,5 +764,6 @@ TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/test pytest -q            # ...
 CRAFT_DOCKER_TESTS=1 pytest tests/test_container.py                        # builds the image: nothing written inside it
 ```
 
-GitHub Actions runs the tests on SQLite, PostgreSQL and MariaDB, then builds and publishes the image on every push to
-`main`. `screenshots.yml` is a manual workflow that uploads screenshots of each page.
+GitHub Actions runs the tests on SQLite, PostgreSQL and MariaDB (Python 3.15, plus 3.12 on SQLite), then publishes
+`:edge` on every push to `main`. Pushing a `v*` tag publishes the release tags and a GitHub Release from
+[CHANGELOG.md](CHANGELOG.md); the tag must match `app/version.py`. `screenshots.yml` is a manual workflow that uploads screenshots of each page.

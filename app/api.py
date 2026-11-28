@@ -9,6 +9,7 @@ from projects import project_filters, project_sections, tags_of, visible_project
 import wishlist as wl
 import linkfetch as lf, linkimport as li
 import patterns as pt
+from version import VERSION
 
 @app.errorhandler(HTTPException)
 def http_error(e):
@@ -51,7 +52,7 @@ def visible_item(iid, write=False):
 
 @app.get("/api/v1")
 def api_index():
-    return jsonify(version=1, user=g.user["username"], can_write=g.api_write, endpoints=[
+    return jsonify(version=1, app_version=VERSION, user=g.user["username"], can_write=g.api_write, endpoints=[
         "GET /api/v1/summary", "GET /api/v1/shopping", "POST /api/v1/shopping/restock",
         "GET /api/v1/collections", "GET /api/v1/collections/<id>", "GET /api/v1/items?q=&status=",
         "GET /api/v1/items/<id>", "POST /api/v1/items/<id>/adjust", "GET /api/v1/projects", "GET /api/v1/projects/<id>",

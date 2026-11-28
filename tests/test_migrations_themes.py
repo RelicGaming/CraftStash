@@ -45,3 +45,15 @@ def test_every_preset_builds_and_dark_ones_flip_status_colours():
 def test_appearance_is_saved_per_user(env, amy, bob):
     amy.post("/appearance", {"theme": "forest", "radius": "round"})
     assert "--r-lg:22px" in amy.html("/") and "<style>:root" not in bob.html("/")
+
+def test_an_older_version_refuses_a_database_a_newer_one_upgraded(make_env, tmp_path):
+    from conftest import TEST_DB
+    import migrations
+    env = make_env(); d = env.db()
+    d.execute("UPDATE schema_version SET version=999"); d.commit()
+    if not TEST_DB:
+        c = sqlite3.connect(tmp_path / "craft.db"); c.execute("PRAGMA user_version=999"); c.commit(); c.close()
+    with pytest.raises(SystemExit, match="upgraded by a newer Craft Stash"): make_env()
+    if not TEST_DB: assert sqlite3.connect(tmp_path / "craft.db").execute("PRAGMA user_version").fetchone()[0] == 999   # left alone
+    with pytest.raises(SystemExit): migrations.refuse_newer(len(migrations.STEPS) + 1, len(migrations.STEPS))
+    migrations.refuse_newer(len(migrations.STEPS), len(migrations.STEPS))
