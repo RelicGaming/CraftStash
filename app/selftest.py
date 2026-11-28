@@ -70,11 +70,11 @@ class Client:
         hdrs, body = dict(headers or {}), None
         if method == "POST":
             data = dict(data or {}); data.setdefault("_csrf", self.token or self.fetch_token())
-            body, ct = multipart(data, files) if files else (urlencode(data).encode(), "application/x-www-form-urlencoded")
+            body, ct = multipart(data, files) if files else (urlencode(data, doseq=True).encode(), "application/x-www-form-urlencoded")
             hdrs["Content-Type"] = ct
         r = self._once(method, path, body, hdrs); total, hops = r.total, 0
         if method == "POST" and r.status == 400 and retry:
-            data["_csrf"] = self.fetch_token(); body, ct = multipart(data, files) if files else (urlencode(data).encode(), "application/x-www-form-urlencoded")
+            data["_csrf"] = self.fetch_token(); body, ct = multipart(data, files) if files else (urlencode(data, doseq=True).encode(), "application/x-www-form-urlencoded")
             hdrs["Content-Type"] = ct; r = self._once(method, path, body, hdrs); total += r.total
         first = r
         while follow and r.status in (301, 302, 303, 307, 308) and hops < 6:
@@ -264,6 +264,15 @@ def _(t):
     u.post(f"/items/{iid}/edit", {"name": "Merino DK", "qty": "7", "colour": "Rose"}); p = page(u, pid)
     assert "Merino DK" in p and "<strong>7</strong>" in p, "edit not saved"
     u.post(f"/items/{iid}/delete"); assert "Merino DK" not in page(u, pid), "item not deleted"
+
+@check("Items", "Add DMC floss from the catalogue, with family and swatch, never twice")
+def _(t):
+    u = t.user(); pid = new_collection(u, f"Floss{uuid.uuid4().hex[:4]}"); tid = new_type(u, pid, "Embroidery floss", "skein", "Brand")
+    pg = u.get(f"/types/{tid}/catalogue").text; assert pg.count('name="pick"') == 489, "DMC floss catalogue not listed"
+    u.post(f"/types/{tid}/catalogue", {"c": "dmc-floss", "pick": ["310", "321"], "qty_310": "3", "location": "Box 1"})
+    p = page(u, pid); assert all(x in p for x in ("DMC 310", "Black", "#000000", "Box 1", "Colour family", "<strong>3</strong>")), "catalogue items missing"
+    u.post(f"/types/{tid}/catalogue", {"c": "dmc-floss", "pick": ["310"]}); assert page(u, pid).count(">DMC 310<") == 1, "a colour was added twice"
+    assert u.get(f"/types/{tid}/catalogue").text.count('name="pick"') == 487, "owned colours still offered"
 
 @check("Items", "Photo upload is re-encoded, shown, rejected if fake, removable")
 def _(t):

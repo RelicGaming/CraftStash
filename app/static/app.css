@@ -329,3 +329,15 @@ summary.who.current .avatar{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--
   .legend td:nth-child(3){grid-column:3;grid-row:2;color:var(--muted)}.legend td:nth-child(3)::after{content:" " attr(data-unit)}
   .legend td:nth-child(4){grid-column:2;grid-row:2}.legend td:nth-child(5){grid-column:2/4;grid-row:3}
 }
+/* Add from a catalogue */
+.cat-tools{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:12px}.cat-tools>*{flex:1 1 220px}
+.cat-fams{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.cat-fams .chip{padding:4px 10px;cursor:pointer;background:var(--surface);font:inherit;font-size:.82rem}
+.cat-fams .chip.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.cat-list{display:grid;gap:2px}
+.cat-row{display:grid;grid-template-columns:3rem 1fr auto;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--line)}
+.cat-row[hidden]{display:none}.cat-row input[type=checkbox]{width:20px;height:20px;justify-self:center}
+.cat-row.own{opacity:.65}.cat-row.own .pill{font-size:.66rem;padding:2px 5px;white-space:nowrap;justify-self:center}
+.cat-name{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0}.cat-name .sw-tile{width:30px;height:30px;border-radius:7px;flex:none}
+.cat-qty{display:flex;gap:6px}.cat-qty input{width:5.5rem}.cat-qty input+input{width:9rem}
+.cat-row:not(:has(input[name=pick]:checked)) .cat-qty input+input{display:none}
+@media(max-width:560px){.cat-row{grid-template-columns:3rem 1fr}.cat-qty{grid-column:2}.cat-qty input+input{flex:1}.cat-row:not(:has(input[name=pick]:checked)) .cat-qty{display:none}}

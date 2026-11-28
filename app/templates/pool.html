@@ -32,9 +32,10 @@
 <p class="muted small" style="margin:8px 0 20px">Search covers names, colours, notes and every custom field. Use Label:value to search a single field.</p>{% endif %}
 
 {% for t, fl, rows in groups %}
-<details class="type" open><summary><svg class="i chev"><use href="#i-chev-d"/></svg>
+<details class="type" id="type-{{ t.id }}" open><summary><svg class="i chev"><use href="#i-chev-d"/></svg>
 <span class="type-title">{{ t.name }}</span><span class="pill">{{ t.unit }}</span><span class="muted small">{{ rows|length }} {{ 'item' if rows|length == 1 else 'items' }}</span><span class="type-gap"></span>
 {% if pool.can_edit %}<a class="btn sm" href="{{ url_for('item_new', tid=t.id) }}"><svg class="i"><use href="#i-plus"/></svg>Add item</a>
+<a class="btn secondary sm" href="{{ url_for('catalogue_add', tid=t.id) }}" aria-label="Add {{ t.name }} from a colour catalogue">From catalogue</a>
 <a class="btn secondary sm" href="{{ url_for('type_fields', tid=t.id) }}" aria-label="Edit {{ t.name }} type and fields">Edit type</a>{% endif %}</summary>
 {% for i in rows %}{% set x = i.extra|fromjson %}
 <div class="item" id="item-{{ i.id }}"><span class="sw-tile{{ '' if i.hex else ' none' }}{{ ' photo' if i.photo }}" {% if i.hex %}style="--c:{{ i.hex }}"{% endif %}>{% if i.photo %}<img src="{{ url_for('photo', iid=i.id) }}" alt="" loading="lazy">{% if i.hex %}<span class="dot"></span>{% endif %}{% endif %}</span>
@@ -58,7 +59,7 @@
 <div class="item-stock"><strong>{{ '%g'|format(i.qty) }}</strong> {{ t.unit }}
 {% if i.free < 0 %}<small><span class="pill bad">Short by {{ '%g'|format(-i.free) }}</span></small>{% elif i.qty <= 0 %}<small><span class="pill bad">Out of stock</span></small>{% elif i.low_at is not none and i.qty <= i.low_at %}<small><span class="pill warn">Low stock</span></small>{% elif i.free <= 0 %}<small><span class="pill warn">All reserved</span></small>{% elif i.free < i.qty %}<small>{{ '%g'|format(i.free) }} free</small>{% endif %}</div>
 <div class="item-price">{% if i.price is not none %}{{ i.price|money }}<small>per {{ t.unit }}</small>{% endif %}</div></div>
-{% else %}<div class="empty">{% if term %}Nothing in {{ t.name }} matches “{{ term }}”.{% else %}No {{ t.name|lower }} yet.{% if pool.can_edit %} <a href="{{ url_for('item_new', tid=t.id) }}">Add the first one</a>{% endif %}{% endif %}</div>{% endfor %}
+{% else %}<div class="empty">{% if term %}Nothing in {{ t.name }} matches “{{ term }}”.{% else %}No {{ t.name|lower }} yet.{% if pool.can_edit %} <a href="{{ url_for('item_new', tid=t.id) }}">Add the first one</a> or <a href="{{ url_for('catalogue_add', tid=t.id) }}">pick from a colour catalogue</a>.{% endif %}{% endif %}</div>{% endfor %}
 </details>
 {% else %}{% if pool.can_edit %}<section class="panel stitch"><h2>Add your first material type</h2>
 <p class="muted">A material type is one kind of supply in this collection, like Yarn or Fabric. It sets the unit you count in and the details you record for each item.</p>
