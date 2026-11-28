@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block title %}Admin - Craft Stash{% endblock %}
 {% block body %}
-<div class="page-head"><h1>Admin</h1></div>
+<div class="page-head"><h1>Admin</h1><span class="pill" title="Craft Stash version">v{{ app_version }}</span></div>
 {% if sso_warning %}<p class="notice" role="alert" style="background:var(--danger-soft);border-color:var(--danger)"><strong>Single sign-on is not secure.</strong> {{ sso_warning }}</p>{% endif %}
 <h2 class="section-title" style="margin-top:0">Users</h2>
 <section class="panel" style="padding:8px 20px"><div class="scroll"><table><tr><th>User<th>Collections<th>Projects<th>Storage<th>Reset password<th></tr>

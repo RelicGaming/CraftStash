@@ -3,6 +3,7 @@ import backup, dbx, hashlib, json, math, migrations, oidc, os, paths, re, secret
 from PIL import Image, ImageOps, UnidentifiedImageError
 from datetime import datetime, timezone
 from flask import abort, flash, Flask, g, jsonify, redirect, request, session, url_for
+from version import VERSION
 from flask.sessions import SecureCookieSessionInterface
 from markupsafe import Markup
 from types import MappingProxyType
@@ -140,7 +141,7 @@ def startup_summary(out=None):
             f"cookies={os.environ.get('COOKIE_SECURE', 'auto')}", f"uploads<={app.config['MAX_CONTENT_LENGTH'] // 1048576} MB",
             f"quota={QUOTA // 1048576 or 'none'}{' MB' if QUOTA else ''}", f"snapshots={os.environ.get('BACKUP_KEEP', '7') or '0'}",
             f"tz={TZ.key}", f"secret_key={'set' if os.environ.get('SECRET_KEY') or os.environ.get('SECRET_KEY_FILE') else 'generated'}"]
-    print("[config] " + "  ".join(bits), file=out, flush=True)
+    print(f"[config] version={VERSION}  " + "  ".join(bits), file=out, flush=True)
 startup_summary()
 
 _pruned = {"at": 0.0}
@@ -342,7 +343,7 @@ def ctx():
         n = db().execute(f"SELECT COUNT(*) FROM stock s JOIN access a ON a.pool_id=s.pool_id WHERE a.user_id=? AND {LOW}", (g.user["id"],)).fetchone()[0]
     css = themes.css_for(g.user["theme"]) if getattr(g, "user", None) else ""   # built only from validated hex/enum values
     return {"csrf": Markup(f'<input type="hidden" name="_csrf" value="{session.get("csrf", "")}">'), "shop_count": n,
-            "theme_css": Markup(css)}
+            "theme_css": Markup(css), "app_version": VERSION}
 
 @app.get("/healthz")
 def healthz(): return "ok"

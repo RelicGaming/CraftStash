@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
+from version import VERSION
 
 APP_DIR = Path(__file__).resolve().parent
 PW = "selftest-pass-1"
@@ -525,7 +526,7 @@ def html_report(d):
     cards = [("Checks passed", f"{S['passed']} / {S['total']}"), ("Failed", str(S["failed"])), ("Run time", f"{S['duration_s']:.1f} s"),
              ("Median page load", ms(S["median_load"])), ("95th percentile", ms(S["p95_load"])), ("Slowest page", ms(S["slowest_load"]))]
     out = [f"<!doctype html><html lang=en><meta charset=utf-8><title>Craft Stash self-test</title><style>{css}</style><main>",
-           f"<h1>Craft Stash self-test</h1><div class=muted>{e(d['started'])} on {e(d['env']['platform'])}, Python {e(d['env']['python'])}, served by {e(d['env']['server'])}. Fresh temporary database, real HTTP, nothing of yours touched.</div>",
+           f"<h1>Craft Stash self-test</h1><div class=muted>Version {e(d['env'].get('version', '?'))}, {e(d['started'])} on {e(d['env']['platform'])}, Python {e(d['env']['python'])}, served by {e(d['env']['server'])}. Fresh temporary database, real HTTP, nothing of yours touched.</div>",
            "<div class=cards>" + "".join(f"<div class=card><span class=muted>{a}</span><b class={'fail' if a == 'Failed' and S['failed'] else ''}>{e(v)}</b></div>" for a, v in cards) + "</div>"]
     fails = [c for c in d["checks"] if c["status"] != "pass"]
     if fails: out.append("<h2 class=fail>Failures</h2><table><tr><th>Check<th>What went wrong</tr>" + "".join(f"<tr><td>{e(c['category'])}: {e(c['name'])}<td class=fail>{e(c['error'])}</tr>" for c in fails) + "</table>")
@@ -631,7 +632,7 @@ def main():
     proc = None; d = {"checks": [], "perf": [], "browser": None, "budget_ms": a.budget_ms}
     try:
         port = free_port(); proc, base, kind = start_server(port, sandbox, a.server)
-        d["env"] = {"platform": platform.platform(), "python": platform.python_version(), "server": kind}
+        d["env"] = {"version": VERSION, "platform": platform.platform(), "python": platform.python_version(), "server": kind}
         emit(event="start", total=len(chosen), server=kind)
         t = T(base); t.admin = t.anon(); t.admin.name = f"admin{t.tag}"; t.admin.post("/register", {"username": t.admin.name, "password": PW})
         assert "Your collections" in t.admin.get("/").text, "could not create the first (admin) account"
@@ -655,7 +656,7 @@ def main():
                 d["perf"] = d["perf"] or []; d["checks"].append({"category": "Performance", "name": "Load-time pass", "status": "error", "ms": 0, "error": describe(ex), "requests": [], "slowest": None})
                 emit(event="check", i=len(chosen) + 1, category="Performance", name="Load-time pass", status="error", ms=0, requests=0, slowest=None, error=describe(ex))
     except Exception as ex:
-        d["env"] = d.get("env") or {"platform": platform.platform(), "python": platform.python_version(), "server": "none"}
+        d["env"] = d.get("env") or {"version": VERSION, "platform": platform.platform(), "python": platform.python_version(), "server": "none"}
         d["checks"].append({"category": "Setup", "name": "Start the test server", "status": "error", "ms": 0, "error": describe(ex), "requests": [], "slowest": None})
         emit(event="check", i=1, category="Setup", name="Start the test server", status="error", ms=0, requests=0, slowest=None, error=describe(ex))
     finally:
