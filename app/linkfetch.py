@@ -6,7 +6,7 @@ the Docker network or carrier NAT). The connection goes to the address that was 
 swap in a private one, and each redirect is checked the same way. Time and size are limited, and pictures are
 re-encoded by save_photo like every other upload. LINK_IMPORT=off turns all of it off.
 """
-import html, http.client, ipaddress, os, re, socket, ssl, time
+import html, http.client, ipaddress, os, re, socket, ssl, threading, time
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 import xml.etree.ElementTree as ET
@@ -34,10 +34,15 @@ class Page:
         except LookupError: return self.body.decode("utf-8", "replace")
 
 # ---------- the checks ----------
+NAT64 = ipaddress.ip_network("64:ff9b::/96")      # an IPv6-only network's way to an IPv4 address (RFC 6052)
+V4_COMPAT = ipaddress.ip_network("::/96")          # the old IPv4-compatible form
 def addr_ok(ip):
     """True for an address on the public internet. Tests swap this out to reach their local server."""
     a = ipaddress.ip_address(ip.split("%")[0])
-    if a.version == 6 and a.ipv4_mapped: a = a.ipv4_mapped
+    if a.version == 6:
+        if a.ipv4_mapped: a = a.ipv4_mapped
+        elif a in NAT64 or (a in V4_COMPAT and int(a) > 0xFFFF):   # 64:ff9b::10.0.0.1 or ::10.0.0.1 reach an IPv4 address
+            a = ipaddress.IPv4Address(int(a) & 0xFFFFFFFF)
     return a.is_global and not a.is_multicast
 
 def check_url(url):
@@ -59,24 +64,39 @@ def resolve(host, port):
     if not ips or not all(addr_ok(ip) for ip in ips): raise FetchError("That link points at a private or local address, which isn't allowed.")
     return ips[0]
 
-class _Plain(http.client.HTTPConnection):
-    def __init__(self, host, ip, port): super().__init__(host, port, timeout=TIMEOUT); self.ip = ip
-    def connect(self): self.sock = socket.create_connection((self.ip, self.port), self.timeout)
+class _Held:
+    """http.client closes the socket as soon as a reply says it will close, while the body is still being read. Keep
+    it (as held) until fetch is done, so read timeouts and the deadline cut work on it to the end."""
+    def close(self): self.sock = None
+    def release(self):
+        h = getattr(self, "held", None); self.held = None
+        if h: h.close()
 
-class _TLS(http.client.HTTPSConnection):
+class _Plain(_Held, http.client.HTTPConnection):
+    def __init__(self, host, ip, port): super().__init__(host, port, timeout=TIMEOUT); self.ip = ip
+    def connect(self): self.sock = self.held = socket.create_connection((self.ip, self.port), self.timeout)
+
+class _TLS(_Held, http.client.HTTPSConnection):
     """HTTPS to the checked address. The certificate is still checked against the host name in the link."""
     def __init__(self, host, ip, port): super().__init__(host, port, timeout=TIMEOUT); self.ip = ip
     def connect(self):
         sock = socket.create_connection((self.ip, self.port), self.timeout)
-        self.sock = ssl.create_default_context().wrap_socket(sock, server_hostname=self.host)
+        self.sock = self.held = ssl.create_default_context().wrap_socket(sock, server_hostname=self.host)
 
 def fetch(url, accept="text/html,application/xhtml+xml;q=0.9,*/*;q=0.5", limit=None):
     """GET a checked link, following checked redirects. Pages are cut at MAX_PAGE; anything else over limit
     (default MAX_IMAGE) is refused."""
     deadline = time.monotonic() + TOTAL; limit = limit or MAX_IMAGE
+    def left():
+        t = deadline - time.monotonic()
+        if t <= 0: raise FetchError("The site took too long to answer.")
+        return min(TIMEOUT, t)
     for _ in range(REDIRECTS + 1):
         scheme, host, port, path = check_url(url)
         conn = (_TLS if scheme == "https" else _Plain)(host, resolve(host, port), port)
+        conn.timeout = left()
+        watchdog = threading.Timer(max(0.0, deadline - time.monotonic()), _cut, (conn,))
+        watchdog.daemon = True; watchdog.start()   # at the deadline, cut the connection whatever it's waiting for
         try:
             conn.request("GET", path, headers={"User-Agent": UA, "Accept": accept, "Accept-Encoding": "identity", "Accept-Language": "en"})
             r = conn.getresponse()
@@ -90,19 +110,27 @@ def fetch(url, accept="text/html,application/xhtml+xml;q=0.9,*/*;q=0.5", limit=N
             if not page and n.isdigit() and int(n) > cap: raise FetchError("That file is too big to import.")
             body = bytearray()
             while len(body) <= cap:
-                if time.monotonic() > deadline: raise FetchError("The site took too long to answer.")
-                chunk = r.read(65536)
+                conn.held.settimeout(left())       # each wait is bounded by what's left, so a trickle can't hold it
+                chunk = r.read1(65536)           # returns what has arrived, instead of waiting for 64 KB
                 if not chunk: break
                 body += chunk
+            if time.monotonic() >= deadline - 0.05: raise FetchError("The site took too long to answer.")   # cut off, not finished
+            if n.isdigit() and len(body) < min(int(n), cap + 1): raise FetchError("That site couldn't be reached. Check the link, or try again later.")
             if len(body) > cap:
                 if not page: raise FetchError("That file is too big to import.")
                 del body[cap:]
             return Page(url, ctype, bytes(body))
         except (OSError, http.client.HTTPException) as e:
+            if time.monotonic() >= deadline - 0.05: raise FetchError("The site took too long to answer.") from None
             if isinstance(e, ssl.SSLCertVerificationError): raise FetchError("That site's security certificate isn't valid.") from None
             raise FetchError("That site couldn't be reached. Check the link, or try again later.") from None
-        finally: conn.close()
+        finally: watchdog.cancel(); conn.release()
     raise FetchError("That link redirects too many times.")
+
+def _cut(conn):
+    """Unblock a connection stuck on a slow site: shutting the socket down wakes the read with an error."""
+    try: getattr(conn, "held", None) and conn.held.shutdown(socket.SHUT_RDWR)   # conn.sock is gone once the reply says it closes
+    except OSError: pass
 
 # ---------- reading a page ----------
 class _Meta(HTMLParser):

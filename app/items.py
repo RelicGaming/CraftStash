@@ -80,7 +80,10 @@ def item_del(iid):
 
 def safe_next(default):
     n = request.form.get("next", "")      # a path inside the app (request.full_path), so URL_PREFIX is added here
-    return request.script_root + n if n.startswith("/") and not n.startswith("//") and "\\" not in n else default
+    # Browsers drop tabs and newlines from a URL, so "/<tab>/evil.example" would become "//evil.example": refuse any
+    # whitespace or control character as well as "//" and backslashes.
+    ok = re.fullmatch(r"/(?![/\\])[^\s\x00-\x1f\x7f\\]*", n)
+    return request.script_root + n if ok else default
 
 @app.post("/items/<int:iid>/adjust")
 def item_adjust(iid):

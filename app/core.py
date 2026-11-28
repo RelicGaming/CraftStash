@@ -35,7 +35,7 @@ def content_ok(ext, head):
     if ext == "webp" and head[8:12] != b"WEBP": return False
     return head.startswith(MAGIC.get(ext, (b"",)))
 QUOTA = int(os.environ.get("USER_QUOTA_MB", "500") or 0) * 1024 * 1024
-Image.MAX_IMAGE_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = 40_000_000    # open_small refuses anything bigger before decoding it
 CSP = ("default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
@@ -267,12 +267,31 @@ def used_bytes(user_id):
                                 + (SELECT COALESCE(SUM(sp.size),0) FROM step_photos sp JOIN steps s ON s.id=sp.step_id
                                    JOIN projects p ON p.id=s.project_id WHERE p.user_id=?)""", (user_id, user_id)).fetchone()[0]
 
+PICTURE_FORMATS = ("JPEG", "PNG", "WEBP", "GIF")
+UNSCALED_PIXELS = 12_000_000           # PNG, WebP, GIF: decoded at full size, so a lower limit than JPEG (4000 x 3000)
+
+def open_small(stream, side):
+    """An uploaded or downloaded picture, decoded no bigger than side x side and turned upright, or None. A small file
+    can hold a huge picture (a 250 KB PNG of 80 million pixels), so the size is checked before anything is decoded,
+    JPEGs are decoded already scaled down, and the picture is shrunk before any full-size copy is made: decoding
+    one at full size would take several times the container's memory."""
+    try:
+        im = Image.open(stream)
+        if im.format not in PICTURE_FORMATS: return None
+        if im.width * im.height > (Image.MAX_IMAGE_PIXELS if im.format == "JPEG" else UNSCALED_PIXELS): return None
+        exif = im.getexif()                 # read before draft/thumbnail, which can drop it
+        im.draft("RGB", (side, side))       # JPEG: decode at 1/2, 1/4 or 1/8 size (a no-op for other formats)
+        im.thumbnail((side, side))
+        if exif.get(0x0112, 1) != 1:        # orientation: turn the small copy upright
+            im.getexif()[0x0112] = exif[0x0112]; im = ImageOps.exif_transpose(im)
+        return im
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, SyntaxError): return None
+
 def save_photo(f):
     """Re-encode an uploaded image as a small JPEG: strips metadata and anything hidden in the file."""
     try:
-        im = Image.open(f.stream)
-        if im.format not in ("JPEG", "PNG", "WEBP", "GIF"): return None
-        im = ImageOps.exif_transpose(im); im.thumbnail((900, 900))
+        im = open_small(f.stream, 900)
+        if im is None: return None
         rgba = im.convert("RGBA"); flat = Image.new("RGB", rgba.size, "#ffffff"); flat.paste(rgba, mask=rgba.split()[3])
         name = uuid.uuid4().hex + ".jpg"; flat.save(PHOTOS / name, "JPEG", quality=84, optimize=True); return name
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError): return None
