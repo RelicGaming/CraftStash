@@ -4,7 +4,7 @@ All notable changes to Craft Stash. The format follows [Keep a Changelog](https:
 and versions follow [Semantic Versioning](https://semver.org/). What a patch, minor and major release may change is
 under [Versions and upgrades](README.md#versions-and-upgrades) in the README.
 
-## [1.0.0-rc.1] - unreleased
+## [1.0.0-rc.1] - 2026-11-28
 
 The first numbered release. Everything up to here, grouped by area.
 
@@ -50,4 +50,4 @@ The first numbered release. Everything up to here, grouped by area.
   killed); the link fetcher refuses NAT64 and IPv4-compatible forms of private addresses and enforces its 20 second
   limit on slow sites; form return paths refuse tabs and newlines that browsers drop.
 
-[1.0.0-rc.1]: https://github.com/RelicGaming/CraftStash/commits/main
+[1.0.0-rc.1]: https://github.com/RelicGaming/CraftStash/releases/tag/v1.0.0-rc.1
