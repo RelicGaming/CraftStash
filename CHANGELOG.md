@@ -4,7 +4,7 @@ All notable changes to Craft Stash. The format follows [Keep a Changelog](https:
 and versions follow [Semantic Versioning](https://semver.org/). What a patch, minor and major release may change is
 under [Versions and upgrades](README.md#versions-and-upgrades) in the README.
 
-## [1.0.0-rc.1] - unreleased
+## [1.0.0-rc.1] - 2026-11-28
 
 The first numbered release. Everything up to here, grouped by area.
 
@@ -46,5 +46,8 @@ The first numbered release. Everything up to here, grouped by area.
 - Image with no fixable high vulnerabilities, no setuid programs and no pip (#23, #26).
 - SQL building hardened with injection regression tests (#34); OIDC, SQL translator and attachment checks (#36).
 - Link import fetches through an SSRF-guarded fetcher (#40).
+- 1.0 review: pictures are size-checked before decoding (a 250 KB PNG used to take ~1 GB and get the container
+  killed); the link fetcher refuses NAT64 and IPv4-compatible forms of private addresses and enforces its 20 second
+  limit on slow sites; form return paths refuse tabs and newlines that browsers drop.
 
-[1.0.0-rc.1]: https://github.com/RelicGaming/CraftStash/commits/main
+[1.0.0-rc.1]: https://github.com/RelicGaming/CraftStash/releases/tag/v1.0.0-rc.1

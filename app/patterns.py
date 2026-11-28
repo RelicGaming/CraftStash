@@ -77,9 +77,9 @@ def save_source(up):
     """A picture upload (or anything with .stream), re-encoded as PNG in the photos folder, alpha kept: transparent
     parts of a picture become cells that aren't stitched. The file name, or None."""
     try:
-        im = Image.open(up.stream)
-        if im.format not in ("JPEG", "PNG", "WEBP", "GIF"): return None
-        im = ImageOps.exif_transpose(im).convert("RGBA"); im.thumbnail((SOURCE_SIDE, SOURCE_SIDE))
+        im = core.open_small(up.stream, SOURCE_SIDE)
+        if im is None: return None
+        im = im.convert("RGBA")
         name = f"pat-{uuid.uuid4().hex}.png"; im.save(PHOTOS / name, "PNG", optimize=True); return name
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError): return None
 
