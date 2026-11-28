@@ -67,6 +67,7 @@ def test_the_catalogues_are_whole_and_credited(pk):
         assert len({c[0] for c in cols}) == len(cols) and all(re.fullmatch(r"#[0-9A-F]{6}", c[2]) for c in cols)
     notice = (pk.CATALOGUE_DIR / "NOTICE.md").read_text()
     assert "CC BY 4.0" in notice and "MakeBead" in notice and "Copyright (c) 2020 maxcleme" in notice
+    assert "states no licence" in notice and "floss.maxxmint.com" in notice     # the DMC values are not claimed as CC BY
 
 def test_estimates(pk):
     cs = {"count": 14, "strands": 2, "per_unit": 0}

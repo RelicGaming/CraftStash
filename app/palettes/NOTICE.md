@@ -1,18 +1,29 @@
 # Colour catalogues
 
-The pattern tool's "best colours" mode matches against these catalogues. They were taken on 2026-11-26 from
+The pixel pattern maker matches charts against these catalogues, and a material type's **From catalogue** page adds
+their colours to your stash. They were taken on 2026-11-26 from
 [craft-color-codes](https://github.com/makebead/craft-color-codes) (`data/json/`), checked row by row (code, name,
 hex that matches its RGB, no duplicate codes) and cut down to code, name and hex.
 
 ## DMC floss (`dmc-floss.json`, 489 colours) and DMC diamond painting drills (`dmc-diamond.json`, 154 colours)
 
-Color data: craft-color-codes by [MakeBead](https://makebead.com/), licensed under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: only the code, name and hex columns are kept.
+Color data: craft-color-codes by [MakeBead](https://makebead.com/). MakeBead's compilation and corrections are
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: only the code, name and hex columns
+are kept.
 
-MakeBead's notes: the values were cross-checked between community sources (floss.maxxmint.com,
-adrianj/CrossStitchCreator, xstitchify.com) and were not measured on a skein. CC BY 4.0 covers MakeBead's compilation
-and corrections, not the upstream values, which state no licence. The colours are screen approximations: check a real
-colour card before buying.
+**What that licence does and doesn't cover.** MakeBead's `LICENSE-DATA.md` and `SOURCES.md` say CC BY 4.0 covers
+their compilation and their own work in it (corrections, the rebuilt hex values), and does not grant rights in values
+that came from third parties. The DMC values came from:
+
+- [floss.maxxmint.com](https://floss.maxxmint.com/), which states no licence for its values;
+- [adrianj/CrossStitchCreator](https://github.com/adrianj/CrossStitchCreator), which has no licence file. The same set is
+  also distributed under the MIT licence by the [sharlagelfand/dmc](https://github.com/sharlagelfand/dmc) R package;
+- [xstitchify.com](https://xstitchify.com/), used only to settle disagreements.
+
+MakeBead has no agreement with these sources. Craft Stash relies on MakeBead's compilation as published, and on these
+values being approximate screen colours that were cross-checked rather than copied from DMC. If any source asks for
+its values to be removed, they will be. No value was measured on a skein: the colours are screen approximations, so
+check a real colour card before buying.
 
 ## Fuse beads: Perler (`perler-midi.json`, 103), Hama (`hama-midi.json`, 92), Artkal S (`artkal-s.json`, 199)
 
