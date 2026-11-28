@@ -1,5 +1,5 @@
 """Shared setup: configuration, the Flask app, database and access helpers, request hooks."""
-import backup, dbx, hashlib, json, math, migrations, oidc, os, paths, re, secrets, sys, themes, time, uuid
+import backup, dbx, hashlib, json, math, migrations, oidc, os, paths, re, secrets, sys, themes, time, uuid, warnings
 from PIL import Image, ImageOps, UnidentifiedImageError
 from datetime import datetime, timezone
 from flask import abort, flash, Flask, g, jsonify, redirect, request, session, url_for
@@ -276,7 +276,8 @@ def open_small(stream, side):
     JPEGs are decoded already scaled down, and the picture is shrunk before any full-size copy is made: decoding
     one at full size would take several times the container's memory."""
     try:
-        im = Image.open(stream)
+        with warnings.catch_warnings():     # Pillow warns about a huge picture on open; it's refused just below
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning); im = Image.open(stream)
         if im.format not in PICTURE_FORMATS: return None
         if im.width * im.height > (Image.MAX_IMAGE_PIXELS if im.format == "JPEG" else UNSCALED_PIXELS): return None
         exif = im.getexif()                 # read before draft/thumbnail, which can drop it
