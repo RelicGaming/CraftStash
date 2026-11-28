@@ -764,5 +764,6 @@ TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/test pytest -q            # ...
 CRAFT_DOCKER_TESTS=1 pytest tests/test_container.py                        # builds the image: nothing written inside it
 ```
 
-GitHub Actions runs the tests on SQLite, PostgreSQL and MariaDB, then builds and publishes the image on every push to
-`main`. `screenshots.yml` is a manual workflow that uploads screenshots of each page.
+GitHub Actions runs the tests on SQLite, PostgreSQL and MariaDB (Python 3.15, plus 3.12 on SQLite), then publishes
+`:edge` on every push to `main`. Pushing a `v*` tag publishes the release tags and a GitHub Release from
+[CHANGELOG.md](CHANGELOG.md); the tag must match `app/version.py`. `screenshots.yml` is a manual workflow that uploads screenshots of each page.
