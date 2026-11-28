@@ -15,6 +15,8 @@ The first numbered release. Everything up to here, grouped by area.
 - Smoother setup of a new collection, its types and items (#21).
 - CSV import and export.
 - Search across all collections and projects (#15).
+- Add from a catalogue: tick the DMC flosses (or DMC drills, Perler, Hama, Artkal beads) you own, and each is added
+  with its number, name, colour family and swatch, ready for a quantity and place (#42).
 
 ### Projects
 - Projects with steps, step photos (#20), attachments, reserved materials and templates (#17).

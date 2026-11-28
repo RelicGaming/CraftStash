@@ -14,6 +14,7 @@ container; SQLite by default, or PostgreSQL / MariaDB / MySQL; runs behind any r
 
 ## Features
 - **Collections** (one per craft) hold **material types** (own unit and custom text/number/dropdown fields) which hold **items** (colour swatch, optional photo, variant, stock, price, location, low-stock level). An item can be **split across several storage places**: use or add stock at a particular place, or move some between places (CSV export shows the main location and the total).
+- **Add from a catalogue**: tick the DMC flosses (or DMC drills, Perler, Hama, Artkal beads) you own and each is added with its number, name, colour family and swatch; you enter how many and where. See [Colour catalogues](#colour-catalogues).
 - **Search everything**: one search box across every collection you own or that's shared with you, plus project names and notes.
 - Search a collection for any text or one field (`Width:150`), sort, export or **import CSV** (with a check-only mode), see the **activity** history and undo stock changes.
 - **Shopping list** across every collection you can use: out of stock, low, or short for a project. Enter what you bought (or take the suggested amounts) and restock everything in one go. Assigning more than you have is allowed and the gap lands on the list.
@@ -195,13 +196,33 @@ The **Projects** page has a filter bar: search (names, notes and step text), sta
 
 - **Craft**: cross-stitch (fabric count and strands give the skeins: about 1,800 stitches a skein on 14-count with 2 strands, or set your own number), fuse beads (one bead a cell, and how many pegboards), diamond painting (drills plus spares) and knit or crochet colourwork (metres from your gauge and an editable length a stitch). Each also gives the finished size. The amounts are estimates.
 - **Colours from**: a catalogue (DMC floss, DMC diamond drills, Perler, Hama or Artkal S beads), **your stash** (only the swatch colours of a collection or one type, so you can start today), or **any colours** (the picture's own).
-- **Check against my stock**: each chart colour is matched to an item of yours: by its catalogue number when the item's name says it (`DMC 310`, in a collection or type that mentions DMC), otherwise by the closest swatch colour within a small difference (marked "close match"). The list shows what you have, what you're short of, and what you'd need to buy, using your **free** stock (what projects haven't reserved) as it is now.
+- **Check against my stock**: each chart colour is matched to an item of yours: by its catalogue number when the item's name says it (`DMC 310`, in a collection or type that mentions DMC; [Add from a catalogue](#colour-catalogues) names them this way), otherwise by the closest swatch colour within a small difference (marked "close match"). The list shows what you have, what you're short of, and what you'd need to buy, using your **free** stock (what projects haven't reserved) as it is now.
 - **Most colours** (up to 60), **Merge colours used fewer than** (folds rarely used colours into their nearest neighbour), **Dither** (smoother shading with more scattered stitches) and **Sharp edges** (for pixel art). A transparent background stays unstitched. Charts go up to 250 x 250. Colours are compared in CIELAB (CIEDE2000), so matches look right to the eye.
 - Patterns are **saved**: change the settings or the picture and choose **Make it again**. The chart shows colours, symbols or both, and zooms. **PDF to print** gives an overview with the colour key and then the chart in numbered parts (50 x 70 cells a page, with bold lines every 10 and centre arrows).
 - **Make a project** makes a planned project tagged `pattern` with the chart PDF attached. It reserves the colours you have as its materials, so anything short goes on the shopping list, and (unless you untick it) puts the colours you don't have on the wishlist for the project. Only items in collections you can edit, and stock kept in the craft's unit (skeins, beads or pcs, drills, metres or yards), are reserved. Doing it again later replaces just the chart PDF.
 - Patterns are private. The source picture is kept in the photos folder (`PHOTOS_DIR`, part of backups) and drawn charts are cached in `TMP_DIR`. An account keeps up to 200 patterns.
 
 The colour catalogues are screen approximations, so check a real colour card before you buy. DMC floss and diamond drill colours: craft-color-codes by [MakeBead](https://makebead.com/), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Perler, Hama and Artkal bead colours: [maxcleme/beadcolors](https://github.com/maxcleme/beadcolors), MIT. Details are in [`app/palettes/NOTICE.md`](app/palettes/NOTICE.md). Colour codes and product names belong to their makers, and Craft Stash isn't affiliated with any of them.
+
+## Colour catalogues
+A material type's **From catalogue** button (next to **Add item**) lists every colour of a bundled catalogue: DMC
+floss (489 colours), DMC diamond drills, and Perler, Hama and Artkal S beads. The type's name picks the likely one
+(DMC floss unless it mentions beads or diamonds), and you can switch.
+
+- Search by number or name, or show one **colour family** (Red, Pink, Orange, Yellow, Green, Blue, Purple, Brown,
+  Grey, Black, White). Tick the colours you have, enter how many (blank is 1), and either one **Store them in** place
+  for all or a place per colour.
+- Each becomes an item named like `DMC 310`, with the colour name (`Black`), the swatch, and the type's **Brand**,
+  **Colour number** and **Colour family** fields, which are added to the type if it hasn't got them.
+- Colours already in the type are marked **In stash** and never added twice: an item counts when its name, colour,
+  variant or a number field holds the code and the brand appears on it, its type or its collection. Adding more later
+  is safe.
+- The family comes from DMC's own colour name ("Yellow Green" is a green), or from the colour itself when the name has
+  no colour word. Edit an item's family if you'd group it differently.
+
+Because the items carry the catalogue number, the [Pixel pattern maker](#pixel-pattern-maker) matches chart colours to
+them exactly, and what you're missing goes on the wishlist when you make the project. The colours are screen
+approximations; the sources are under [Pixel pattern maker](#pixel-pattern-maker).
 
 ## Wishlist
 The **Shopping** page has two tabs: **Restock** (the shopping list) and **Wishlist**, for things you want but don't own yet.

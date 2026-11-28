@@ -237,6 +237,36 @@
     box.querySelector('[data-colour-from-photo]')?.addEventListener('click', () => load(preview.src, false));
   });
   // API token: tap to select, Copy button copies it.
+  // Add from a catalogue: filter by search and family, count the ticked colours, and send only the ticked rows
+  // (a whole catalogue's quantity and place boxes would be close to the form's field limit).
+  document.querySelectorAll('[data-autosubmit]').forEach(s => s.addEventListener('change', () => s.form.submit()));
+  document.querySelectorAll('[data-catalogue]').forEach(f => {
+    const rows = [...f.querySelectorAll('.cat-row')], search = f.querySelector('[data-cat-search]'),
+          onlyTicked = f.querySelector('[data-cat-ticked]'), count = f.querySelector('[data-cat-count]'),
+          button = f.querySelector('[data-cat-button]'), fams = [...f.querySelectorAll('[data-fam]')];
+    let fam = '';
+    const ticked = r => { const c = r.querySelector('input[name=pick]'); return c && c.checked; };
+    const update = () => {
+      const t = search.value.trim().toLowerCase(); let shown = 0;
+      rows.forEach(r => {
+        const ok = (!fam || r.dataset.family === fam) && (!t || r.dataset.code.startsWith(t) || r.dataset.name.includes(t)) && (!onlyTicked.checked || ticked(r));
+        r.hidden = !ok; if (ok) shown++;
+      });
+      const n = rows.filter(ticked).length;
+      count.textContent = `${shown} of ${rows.length} colours shown, ${n} ticked.`;
+      button.textContent = n ? `Add ${n} colour${n === 1 ? '' : 's'}` : 'Add the ticked colours';
+    };
+    fams.forEach(b => b.addEventListener('click', () => { fam = b.dataset.fam; fams.forEach(x => x.classList.toggle('on', x === b)); update(); }));
+    search.addEventListener('input', update); onlyTicked.addEventListener('change', update);
+    rows.forEach(r => {
+      const c = r.querySelector('input[name=pick]'); if (!c) return;
+      c.addEventListener('change', () => { if (c.checked) r.querySelector('.cat-qty input').focus(); update(); });
+      r.querySelectorAll('.cat-qty input').forEach(i => i.addEventListener('input', () => { if (i.value && !c.checked) { c.checked = true; update(); } }));
+    });
+    f.addEventListener('submit', () => rows.forEach(r => { if (!ticked(r)) r.querySelectorAll('.cat-qty input').forEach(i => { i.disabled = true; }); }));
+    update();
+  });
+
   document.querySelectorAll('[data-select-all]').forEach(i => i.addEventListener('focus', () => i.select()));
   document.querySelectorAll('[data-copy-token]').forEach(b => b.addEventListener('click', async () => {
     const i = b.parentElement.querySelector('input'); i.select();

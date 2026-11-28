@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% block title %}Add from a catalogue - Craft Stash{% endblock %}
+{% block body %}
+<a class="back" href="{{ url_for('pool', pid=t.pool_id) }}#type-{{ t.id }}"><svg class="i"><use href="#i-chev-l"/></svg>{{ t.pool_name }}</a>
+<div class="page-head"><h1>Add {{ t.name|lower }} from a catalogue</h1></div>
+<form class="panel inline" method="get" action="{{ url_for('catalogue_add', tid=t.id) }}">
+<label class="field" style="flex:1 1 220px;margin:0"><span>Catalogue</span><select name="c" data-autosubmit>{% for k, label in catalogues.items() %}<option value="{{ k }}" {{ 'selected' if k == cid }}>{{ label }}</option>{% endfor %}</select></label>
+<noscript><button class="btn secondary">Show</button></noscript></form>
+<p class="muted">Tick the colours you have and enter how many. Each one is added to <b>{{ t.name }}</b> with its number, name, colour family and swatch. {{ cat.brand }} colours already in {{ t.name }} are marked <span class="pill">In stash</span> and aren't added twice.
+Swatches are screen colours; check exact matches against a real colour card.</p>
+
+<form method="post" data-catalogue>{{ csrf }}<input type="hidden" name="c" value="{{ cid }}">
+<div class="panel">
+<div class="cat-tools">
+<input type="search" placeholder="Search number or name" aria-label="Search colours" data-cat-search>
+<label class="field" style="margin:0"><span>Store them in</span><input name="location" maxlength="80" list="cat-places" placeholder="e.g. Floss box 1"></label>
+<datalist id="cat-places">{% for p in places %}<option value="{{ p }}">{% endfor %}</datalist></div>
+<div class="cat-fams" role="group" aria-label="Colour family"><button type="button" class="chip on" data-fam="">All</button>{% for f in families %}{% if rows|selectattr('family', 'equalto', f)|list %}<button type="button" class="chip" data-fam="{{ f }}">{{ f }}</button>{% endif %}{% endfor %}
+<label class="chip"><input type="checkbox" data-cat-ticked> Ticked only</label></div>
+<p class="muted small" data-cat-count>{{ rows|length }} colours, {{ have|length }} in stash already.</p>
+<div class="cat-list">{% for r in rows %}{% set own = r.code|lower in have %}
+<div class="cat-row{{ ' own' if own }}" data-code="{{ r.code|lower }}" data-name="{{ r.name|lower }}" data-family="{{ r.family }}">
+{% if own %}<span class="pill">In stash</span>{% else %}<input type="checkbox" name="pick" value="{{ r.code }}" id="pick-{{ loop.index }}" aria-label="I have {{ cat.brand }} {{ r.code }} {{ r.name }}">{% endif %}
+<label for="pick-{{ loop.index }}" class="cat-name"><span class="sw-tile" style="--c:{{ r.hex }}"></span><span><b>{{ r.code }}</b> {{ r.name }}<small class="muted"> · {{ r.family }}</small></span></label>
+{% if not own %}<span class="cat-qty"><input name="qty_{{ r.code }}" type="number" step="any" min="0" placeholder="1" aria-label="How many {{ r.code }} ({{ cat.unit }})"><input name="loc_{{ r.code }}" maxlength="80" list="cat-places" placeholder="Same place" aria-label="Where {{ r.code }} is stored"></span>{% endif %}
+</div>{% endfor %}</div></div>
+<div class="form-actions sticky-actions"><button class="btn"><svg class="i"><use href="#i-plus"/></svg><span data-cat-button>Add the ticked colours</span></button>
+<a class="btn secondary" href="{{ url_for('pool', pid=t.pool_id) }}#type-{{ t.id }}">Cancel</a></div>
+</form>
+{% endblock %}
